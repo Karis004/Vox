@@ -1,0 +1,25 @@
+{
+  "name": "vox",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "predev": "node scripts/setup-python.mjs",
+    "dev": "concurrently --kill-others --names API,WEB --prefix-colors blue,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "node scripts/run-python.mjs -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:web": "npm run dev --workspace vox-studio",
+    "build": "npm run build --workspace vox-studio",
+    "prestart": "node scripts/setup-python.mjs && npm run build",
+    "start": "node scripts/run-python.mjs main.py",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  },
+  "overrides": {
+    "shell-quote": "1.11.0"
+  }
+}
