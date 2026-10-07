@@ -4,7 +4,7 @@
 
 ## 新聊天摘要
 
-先读本文和README。React18 + TypeScript5.6 + Vite6，FastAPI + SQLite，Leonardo + ESP-01S + HS-S77-PL。旧按钮联网、混合文字有声音、约10分钟校时短测已实机通过；语音板实际不能正确读英文单词，只能逐字母，因此新增新闻按熟悉简称与中文词改写。当前正式源码hardware/daily_briefing：上电自动启动、每小时整点校时、每天香港07:15读网页已保存的编排，按钮即时播放，40.233.65.88:8086。新正式版已AVR编译、Docker及本地协议验证，尚未上传或公网／过夜实测。旧time_http_voice独立保留作已验证回退，esp_at_bridge作配网。早期其他草图、旧demo接口和残留pytest缓存已删除。现有数据库与.env保留，不读取／复制秘密。不要擅自启动5173、部署加拿大服务器、上传固件或宣称未做过的实机验证。
+先读本文和README。React18 + TypeScript5.6 + Vite6，FastAPI + SQLite，Leonardo + ESP-01S + HS-S77-PL。旧按钮联网、混合文字有声音、约10分钟校时短测已实机通过；语音板实际不能正确读英文单词，只能逐字母，因此新增新闻按熟悉简称与中文词改写。当前正式源码hardware/daily_briefing：上电自动启动、每小时整点校时、每天香港07:15读网页已保存的编排，按钮即时播放，40.233.65.88:8086。新正式版已AVR编译、Docker及协议验证，尚未上传或做硬件公网／过夜实测。旧time_http_voice独立保留作已验证回退，esp_at_bridge作配网。早期其他草图、旧demo接口和残留pytest缓存已删除。用户已授权首次GitHub推送及服务器部署，均已完成；服务器容器健康，公网8086仍连接超时，见第6节。本机没有Vox服务运行。真实.env和数据库已通过SSH私下迁移，未进GitHub。不要擅自启动本机服务、上传固件或宣称未做过的实机验证。
 
 ## 1. 当前进度与证据
 
@@ -17,8 +17,10 @@
 | 金融＋精算新闻模板 | 已实现；全球、香港、精算均用真实来源与现有AI生成成功 |
 | 网站保存内容→设备分段接口 | 已实现；本地容器实际HTTP/1.0及C++解析通过 |
 | 正式07:15每日、整点校时 | 源码与软件验证完成，未上传／实机听测 |
-| Docker8086 | 实际镜像构建、隔离容器网页/API检查通过；未部署加拿大 |
-| 公网跨网、准确出声时间、过夜、多日／断电 | 待用户部署上传后验证 |
+| Docker8086 | 本机x64、服务器ARM64构建成功；已部署/home/ubuntu/Vox，容器健康，服务器网页/API及三种新闻检查通过 |
+| GitHub | https://github.com/Karis004/Vox，main首提交b877a23；真实.env／数据库／密钥均未提交 |
+| 公网8086 | 直连超时；8085可达，服务器内部8086正常；待云入站规则放行及公网复验 |
+| 准确出声时间、过夜、多日／断电 | 待用户上传后验证 |
 
 临时检查用TEMP中的Python unittest和C++，没有pytest或新增测试环境。UTF-8随机长稿重组、全年边界相关日（10月8日、12月31日）各1440分钟的每日计划、调快调慢／回绕／积压、快照冻结／配置变更、错误源／日期过滤／英文输出拒绝、真实容器长稿17段和每种分包长度已检查。正式AVR：20376字节flash、1618字节静态RAM，余942字节栈／局部变量。软件结果不等于实际喇叭完成报告。
 
@@ -109,11 +111,17 @@ daily_briefing默认SERVER_HOST=40.233.65.88、SERVER_PORT=8086、HK_TIME_HOUR=7
 
 Compose外部8086内部8000，命名卷vox-data:/app/data，restart unless-stopped，健康检查/health。镜像只复制后端和构建网页，.env／data／硬件／release／依赖安装目录不进上下文。Windows锁缺Linux Rollup可选二进制，Docker额外安装匹配Rollup版本与CPU架构的musl包，实际构建已通过。npm审计已修补source-map-js、shell-quote；shell-quote固定override1.11.0，审计0个已报告漏洞。
 
-服务器解压源码包，单独准备.env，docker compose up -d --build。公网地址http://40.233.65.88:8086/，允许云／主机TCP8086。不要改成HTTPS或给device跳登录页。香港UTC+8独立于加拿大系统时区，系统时钟本身需准确。
+用户2026-10-08授权后，已通过SSH别名my连接ubuntu@40.233.65.88，在/home/ubuntu/Vox克隆上述GitHub仓库；主机Docker28.4、Compose2.39、aarch64。真实.env通过SCP迁移并chmod600；本机SQLite用backup生成一致副本后迁移，首启前docker compose cp写入vox-data卷。保存配置hash与本机一致，仍为text/weather/stocks/text，不自动加新闻。容器vox-vox-1健康，映射0.0.0.0:8086→8000，restart unless-stopped。没有停止或修改服务器已有其他项目。
+
+服务器内部/health返回ok且ai_configured=true；网页200、模板6种、daily时间period86400／整点sync正确；全球／香港／精算新闻各实际生成成功；保存稿生成3段，每段≤180字节、有效UTF-8、Content-Length正确，无chunked。本机Vox容器及测试服务均未运行，其他项目容器保留。
+
+公网地址http://40.233.65.88:8086/尚未验收成功：本机禁用代理直连8086仍超时，8085可达；服务器8086监听、INPUT/FORWARD允许、Docker端口规则允许、ufw未开启。疑似云VPC安全列表／网络安全组未放行8086，未访问或修改云控制台。需添加入站TCP目的端口8086（网页和设备使用时来源0.0.0.0/0），再从外部验证/health与device接口。不要改成HTTPS或给device跳登录页。香港UTC+8独立于加拿大系统时区，系统时钟本身需准确。
+
+后续更新在服务器目录git pull --ff-only，再docker compose up -d --build；env和命名卷保留。变更.env后需重建容器使环境生效，git pull本身不会更新私密配置。
 
 源码包不携带真实.env／密钥／本机数据库。首次空命名卷初始化默认编排。保留本机内容需私下迁移data/vox.db，在首次启动前docker compose create、docker compose cp ./data/vox.db vox:/app/data/vox.db、docker compose up -d。已有卷先备份，不覆盖，不删除卷。数据库可能包含用户HTTP请求头；不能公开分发。
 
-当前仍无鉴权原型，网页/API公网保护由部署环境明确配置；device维持主板能访问的HTTP纯文本。未替用户选择账号／密码或新增复杂认证系统。本轮没有SSH、云防火墙／代理修改或实际发布。
+当前仍无鉴权原型，网页/API公网保护由部署环境明确配置；device维持主板能访问的HTTP纯文本。未替用户选择账号／密码或新增复杂认证系统。本轮已SSH部署；未修改云防火墙或代理。
 
 ## 7. 清理及下一步
 
@@ -121,8 +129,8 @@ Compose外部8086内部8000，命名卷vox-data:/app/data，restart unless-stopp
 
 下一步：
 1. 在网页添加全球、香港、精算模块，确认Prompt／简称／条数，测试后保存；已有数据库不自动加模块。
-2. 用户部署8086容器，迁移保存配置，验证health、daily时间、manifest／首段的实际头；核对外部香港网络可达。
+2. 服务器部署及数据迁移已完成；放行云入站TCP8086后验证公网health、daily时间、manifest／首段，核对实际香港网络可达。
 3. 上传daily_briefing；先按按钮听完整稿，检查字母简称、分段是否重叠、source warning；然后验07:15及整点校时。
 4. 过夜、短断网、服务器重启、设备断电和补听，记录实际出声延迟。失败先看SYNC／PART日志，不重新从电源／按钮测试开始。
 
-用户希望简单、小步、保留成功实现。未请求不启动5173或额外占用已有8000；不恢复pytest／日志平台。不复制凭据；区分实机、编译／软件检查与待验收。不擅自远程发布或上传硬件。
+用户希望简单、小步、保留成功实现。未请求不启动本机服务；不恢复pytest／日志平台。凭据只在授权范围私下使用／迁移，不能打印、提交或分发；区分实机、编译／软件检查与待验收。服务器部署已获授权，硬件上传尚未执行。

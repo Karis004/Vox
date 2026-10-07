@@ -37,11 +37,24 @@ npm run start
 - 首次校时已到／超过07:15，等次日；当天补听按按钮。断电无RTC／持久化去重。服务器中途重启或快照过期可能从第一段重播。
 - TTS没有回传，播放结束为保守估算；网络与生成失败可能延后出声。
 
-正式版编译和软件检查通过，尚未上传或做公网／过夜验收。成功接线见 [hardware/README.md](hardware/README.md)。时间回退版与配网AT桥保留。
+正式版编译和软件检查通过，尚未上传或做硬件公网／过夜验收。成功接线见 [hardware/README.md](hardware/README.md)。时间回退版与配网AT桥保留。
 
 ## Docker部署到8086
 
-解压 `release/vox-server.zip` 到服务器目录，准备真实.env：
+2026-10-08已按用户授权首次推送到 [GitHub](https://github.com/Karis004/Vox)，并通过SSH别名 `my` 部署到 `/home/ubuntu/Vox`。服务器ARM64镜像构建成功，容器 `vox-vox-1` 健康；真实.env及原保存编排已私下迁移，文件权限600。无需重新填写现有AI配置。全球、香港、精算新闻在服务器分别生成成功，设备稿分段及Content-Length检查通过。本机没有Vox容器或网页服务运行。
+
+**公网8086仍待放行**：本机绕过代理直连8086超时，同一服务器8085可连接；服务器本机8086正常，主机防火墙和Docker规则允许。需在云控制台确认VPC安全列表／网络安全组的入站TCP目的端口8086（供网页及设备访问时来源为0.0.0.0/0），然后验证公网 `/health`。目前不能把服务器内部成功当作公网已可用。
+
+后续更新：
+
+```sh
+ssh my
+cd /home/ubuntu/Vox
+git pull --ff-only
+docker compose up -d --build
+```
+
+首次部署其他机器时，克隆仓库或解压 `release/vox-server.zip`，单独准备真实.env：
 
 ```sh
 docker compose up -d --build
@@ -69,6 +82,6 @@ docker compose up -d
 
 frontend负责网页；backend/news.py负责新闻证据和Prompt；speech.py负责读法；device_briefing.py负责预生成、快照和分段；device_time.py负责时间。hardware只保留daily_briefing、time_http_voice、esp_at_bridge。data/vox.db保留；release为交付包。
 
-已检查前端构建、真实新闻与现有AI、Leonardo编译、Docker构建及容器网页/API、HTTP/1.0分段、C++各种分包和时间边界。临时检查放系统TEMP，未恢复pytest。
+已检查前端构建、真实新闻与现有AI、Leonardo编译、Docker本机x64及服务器ARM64构建、容器网页/API、HTTP/1.0分段、C++各种分包和时间边界。临时检查放系统TEMP，未恢复pytest。
 
 来源说明：[香港电台RSS](https://news.rthk.hk/rthk/ch/rss.feed)、[金管局API](https://apidocs.hkma.gov.hk/documentation/press-releases/)、[Insurance Journal RSS](https://www.insurancejournal.com/newsfeed/)、[Artemis](https://www.artemis.bm/)、[BBC feeds](https://support.bbc.co.uk/platform/feeds/NewsFeeds.htm)。
