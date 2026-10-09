@@ -11,7 +11,7 @@ export function ModuleLibrary({ catalog, onAdd }: ModuleLibraryProps) {
   return (
     <aside className="library panel-region" aria-label="模块库">
       <div className="region-heading">
-        <span className="kicker">LIBRARY</span>
+        <span className="kicker">模块库</span>
         <span className="count-mark">{String(catalog.length).padStart(2, '0')}</span>
       </div>
       <div className="library-list">

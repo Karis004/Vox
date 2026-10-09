@@ -223,7 +223,7 @@ textarea:focus-visible {
 
 .workspace {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(440px, 1.6fr);
   min-width: 0;
   min-height: 0;
 }
@@ -246,7 +246,7 @@ textarea:focus-visible {
 
 .region-heading {
   justify-content: space-between;
-  height: 53px;
+  min-height: 54px;
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
 }
@@ -278,7 +278,10 @@ textarea:focus-visible {
 
 .library-list {
   flex: 1;
-  padding: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  scrollbar-color: var(--line-dark) transparent;
 }
 
 .library-item {
@@ -287,17 +290,18 @@ textarea:focus-visible {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 58px;
-  padding: 8px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
+  min-height: 74px;
+  margin-bottom: 8px;
+  padding: 12px;
+  border: 1px solid var(--line-dark);
+  border-radius: 3px;
+  background: var(--paper-bright);
   text-align: left;
   cursor: pointer;
 }
 
 .library-item:hover {
-  background: var(--paper-bright);
+  border-color: var(--ink);
 }
 
 .library-item:hover > svg {
@@ -341,7 +345,7 @@ textarea:focus-visible {
 }
 
 .library-copy > span {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -352,22 +356,30 @@ textarea:focus-visible {
 }
 
 .canvas {
+  display: grid;
+  grid-template-rows: 54px minmax(0, 1fr);
+}
+
+.canvas-scroll {
+  min-height: 0;
   overflow-y: auto;
-  padding: 24px 18px 40px;
+  padding: 16px 16px 32px;
   scrollbar-color: var(--line-dark) transparent;
 }
 
 .canvas-topline {
   justify-content: space-between;
-  gap: 20px;
-  margin: 0 auto 18px;
-  max-width: 800px;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.canvas-topline h1 {
-  margin: 4px 0 0;
-  font-size: 20px;
-  line-height: 1.1;
+.preview-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 12px;
 }
 
 .run-button {
@@ -416,11 +428,13 @@ textarea:focus-visible {
 
 .transcript-output p {
   position: relative;
-  max-width: 90%;
+  max-width: 100%;
   margin: 19px 0 0;
   font-family: ui-serif, Georgia, "Noto Serif SC", serif;
   font-size: 16px;
   line-height: 1.85;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   z-index: 1;
 }
 
@@ -451,6 +465,8 @@ textarea:focus-visible {
   max-width: 800px;
   margin: 0 auto 8px;
   color: var(--muted);
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .block-list {
@@ -532,7 +548,7 @@ textarea:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .block-title-line code {
@@ -547,7 +563,7 @@ textarea:focus-visible {
   margin: 6px 0 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -610,7 +626,6 @@ textarea:focus-visible {
   display: grid;
   grid-template-rows: 54px minmax(0, 1fr);
   border-left: 1px solid var(--line-dark);
-  border-right: 1px solid var(--line-dark);
 }
 
 .inspector-header {
@@ -664,7 +679,7 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 7px;
   min-width: 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 650;
 }
 
@@ -678,7 +693,7 @@ textarea:focus-visible {
   border-radius: 2px;
   color: var(--ink);
   background: var(--paper-bright);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   resize: vertical;
 }
@@ -711,7 +726,7 @@ textarea:focus-visible {
   position: relative;
   justify-content: space-between;
   min-height: 30px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -755,7 +770,7 @@ textarea:focus-visible {
 .field-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -1027,15 +1042,7 @@ textarea:focus-visible {
   to { transform: rotate(360deg); }
 }
 
-@media (max-width: 1050px) {
-  .workspace {
-    grid-template-columns: 160px minmax(0, 1fr) 300px;
-  }
-
-  .canvas {
-    padding-inline: 16px;
-  }
-
+@media (max-width: 1200px) {
   .brand-product {
     display: none;
   }
@@ -1122,15 +1129,11 @@ textarea:focus-visible {
   }
 
   .canvas {
-    padding: 20px 12px 36px;
+    padding: 0;
   }
 
-  .canvas-topline {
-    margin-bottom: 14px;
-  }
-
-  .canvas-topline h1 {
-    font-size: 20px;
+  .canvas-scroll {
+    padding: 16px 12px 36px;
   }
 
   .run-button {

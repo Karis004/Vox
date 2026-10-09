@@ -1,7 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Bot, ChevronRight, GripVertical } from 'lucide-react'
-import { blockIcons, blockLabels } from '../icons'
+import { blockIcons } from '../icons'
 import type { BlockResult, BriefingBlock } from '../types'
 
 interface SortableBlockProps {
@@ -67,7 +67,6 @@ export function SortableBlock({
       <div className="block-main">
         <div className="block-title-line">
           <strong>{block.name}</strong>
-          <code>{blockLabels[block.type]}</code>
           {block.ai.enabled && <Bot size={14} aria-label="已启用 AI" />}
         </div>
         <p className={result?.status === 'error' ? 'error-copy' : ''}>

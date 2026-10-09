@@ -231,7 +231,7 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
           <button className="danger-button icon-button" onClick={onDelete} title="删除模块" aria-label="删除模块">
             <Trash2 size={17} />
           </button>
-          <button className="icon-button close-inspector" onClick={onClose} title="查看预览" aria-label="查看预览">
+          <button className="icon-button close-inspector" onClick={onClose} title="返回模块列表" aria-label="返回模块列表">
             <X size={18} />
           </button>
         </div>

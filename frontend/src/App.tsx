@@ -9,8 +9,10 @@ import type { BriefingBlock, BriefingConfig, BriefingResult, CatalogItem } from 
 type MobileView = 'library' | 'canvas' | 'inspector'
 
 function createBlock(item: CatalogItem): BriefingBlock {
+  // getRandomValues also works on the device-compatible public HTTP site.
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, '0')).join('')
   return {
-    id: `${item.type}-${crypto.randomUUID().slice(0, 8)}`,
+    id: `${item.type}-${id}`,
     type: item.type,
     name: item.name,
     enabled: true,
@@ -100,6 +102,7 @@ export default function App() {
     updateConfig({ ...config, blocks: [...config.blocks, block] })
     setSelectedId(block.id)
     setMobileView('inspector')
+    showToast(`已添加${item.name}`)
   }
 
   function updateBlock(block: BriefingBlock) {
@@ -174,15 +177,6 @@ export default function App() {
         <div className={`mobile-panel ${mobileView === 'library' ? 'is-visible' : ''}`}>
           <ModuleLibrary catalog={catalog} onAdd={addBlock} />
         </div>
-        <div className={`mobile-panel ${mobileView === 'inspector' ? 'is-visible' : ''}`}>
-          <Inspector
-            block={selectedBlock}
-            catalog={catalog}
-            onChange={updateBlock}
-            onDelete={deleteBlock}
-            onClose={() => setMobileView('canvas')}
-          />
-        </div>
         <div className={`mobile-panel ${mobileView === 'canvas' ? 'is-visible' : ''}`}>
           <Canvas
             blocks={config.blocks}
@@ -197,17 +191,26 @@ export default function App() {
             onPreview={generatePreview}
           />
         </div>
+        <div className={`mobile-panel ${mobileView === 'inspector' ? 'is-visible' : ''}`}>
+          <Inspector
+            block={selectedBlock}
+            catalog={catalog}
+            onChange={updateBlock}
+            onDelete={deleteBlock}
+            onClose={() => setMobileView('canvas')}
+          />
+        </div>
       </div>
 
       <nav className="mobile-nav" aria-label="工作台视图">
         <button className={mobileView === 'library' ? 'is-active' : ''} onClick={() => setMobileView('library')}>
           <Boxes size={18} />模块
         </button>
+        <button className={mobileView === 'canvas' ? 'is-active' : ''} onClick={() => setMobileView('canvas')}>
+          <SlidersHorizontal size={18} />列表
+        </button>
         <button className={mobileView === 'inspector' ? 'is-active' : ''} onClick={() => setMobileView('inspector')}>
           <PanelRight size={18} />编辑
-        </button>
-        <button className={mobileView === 'canvas' ? 'is-active' : ''} onClick={() => setMobileView('canvas')}>
-          <SlidersHorizontal size={18} />预览
         </button>
       </nav>
 
