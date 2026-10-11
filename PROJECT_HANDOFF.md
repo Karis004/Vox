@@ -24,7 +24,7 @@
 | 公网8086 | 10月9日浏览器已可访问网页/API；HTTP添加问题已复现修复；硬件跨网待实测 |
 | 准确出声时间、过夜、多日／断电 | 待用户上传后验证 |
 
-临时检查用TEMP中的Python unittest和C++，没有pytest或新增测试环境。UTF-8随机长稿重组、全年边界相关日（10月8日、12月31日）各1440分钟的每日计划、调快调慢／回绕／积压、快照冻结／配置变更、错误源／日期过滤／英文输出拒绝、真实容器长稿17段和每种分包长度已检查。前一版正式AVR：20376字节flash、1618字节静态RAM，余942字节栈／局部变量；多按钮版本资源见第9节。软件结果不等于实际喇叭完成报告。
+临时检查用TEMP中的Python unittest和C++，没有pytest或新增测试环境。UTF-8随机长稿重组、全年边界相关日（10月8日、12月31日）各1440分钟的每日计划、调快调慢／回绕／积压、快照冻结／配置变更、错误源／日期过滤／英文输出拒绝、真实容器长稿17段和每种分包长度已检查。前一版正式AVR：20376字节flash、1618字节静态RAM，余942字节栈／局部变量；当前语音反馈版资源见第10节。软件结果不等于实际喇叭完成报告。
 
 ## 2. 架构与代码
 
@@ -151,7 +151,7 @@ Compose外部8086内部8000，命名卷vox-data:/app/data，restart unless-stopp
 
 验证：Leonardo实编23202flash、1690静态RAM、余870；TEMP C++检查07:20示例、小时单独确认、断电模拟、损坏校验／不重复写EEPROM、小时分钟与millis回绕、全部1440个目标时间与日界、多键／长按／抖动和39事件队列。Python临时数据库TestClient检查4个目标时间全天计划、跨午夜预热、daily登记而test不覆盖、无稿单任务503→200、固定id的UTF-8分段。未启动本机监听服务，不访问／更新服务器，不改真实保存配置，不上传硬件。
 
-交付候选release/vox-daily-buttons-firmware.zip，含ino、5个h、README；旧vox-daily-firmware.zip仍是先前单按钮版。正式使用前按hardware/daily_briefing/README新增四根信号线并把原L2地线移到D8，逐个核对键号、听语音、断电保存，之后做定时／过夜实测。当时GitHub／服务器停在22d769e网页修复版本，等待统一发布指令；2026-10-11用户已授权，最新状态见第10节。
+交付候选release/vox-daily-buttons-firmware.zip，含ino、5个h、README；旧vox-daily-firmware.zip仍是先前单按钮版。正式使用前按hardware/daily_briefing/README新增四根信号线并把原L2地线移到D8，逐个核对键号、听语音、断电保存，之后做定时／过夜实测。当时旧单按钮包尚保留；本次已移除避免混淆。当时GitHub／服务器停在22d769e网页修复版本，等待统一发布指令；2026-10-11用户已授权，最新状态见第10节。
 
 ## 10. 2026-10-11语音辅助与统一发布
 
@@ -161,4 +161,4 @@ Compose外部8086内部8000，命名卷vox-data:/app/data，restart unless-stopp
 
 验证：Leonardo24306字节flash（84%），1693字节静态RAM（66%），余867字节；实际草图的真实语音帧与模拟HTTP状态均通过。检查校时失败不误报成功、成功提示、503只提示一次、准备好直读正文、重复7不叠加、410重取、小时／分钟保存和EEPROM恢复。原矩阵／时间边界检查通过；临时数据库API检查四个动态时间全部1440分钟、跨午夜预热、test请求不覆盖daily设置、503→200及180字节分段；原六项后端检查和TypeScript／Vite构建通过。不启动本机监听服务，不改真实配置，不上传主板。
 
-部署结果将在完成后记录于此。固件包release/vox-daily-buttons-firmware.zip包含ino、五个h和操作README，用户仍须按接线表改线、核对键号、Arduino Leonardo上传并实机听测／断电保存；网站更新不会自动升级主板。
+发布与验收：功能提交7bfc9cc已推送origin/main，SSH my在/home/ubuntu/Vox执行git pull --ff-only与docker compose up -d --build --wait，ARM64镜像构建成功、vox-vox-1健康、8086→8000。已有.env和vox-data卷保留，更新前后/api/config SHA256均为39d2dc2854d37c5cd1aaf4e09a3b5c12501b9de464ce63e441d2c59c27c28586；无需用户再次配置.env。公网/health与/device/time通过，实际取稿503→200并生成2个UTF-8段，逐段Content-Length与180字节上限正确、无chunked。公网浏览器1280px实测前两栏均355.5546875px、编辑568.890625px，无横向溢出，截图release/vox-web-equal-columns.png。没有启动本机Vox或修改其他Docker项目。固件包release/vox-daily-buttons-firmware.zip包含ino、五个h和操作README，用户仍须按接线表改线、核对键号、Arduino Leonardo上传并实机听测／断电保存；网站更新不会自动升级主板。
