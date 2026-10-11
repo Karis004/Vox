@@ -57,6 +57,15 @@ class MorningBriefing:
         self.snapshots: dict[str, Snapshot] = {}
         self.task: asyncio.Task | None = None
         self.error: str | None = None
+        self.schedule_minute = 7 * 60 + 15
+
+    def set_schedule(self, hour: int, minute: int) -> None:
+        # One device: its hourly time request also advertises its EEPROM setting.
+        self.schedule_minute = hour * 60 + minute
+
+    def should_prewarm(self, now: datetime) -> bool:
+        # Five minutes before through fifteen after; handles midnight as well.
+        return (now.hour * 60 + now.minute - self.schedule_minute + 5) % 1440 <= 20
 
     def key(self, config: BriefingConfig, now: datetime) -> str:
         return now.date().isoformat() + hashlib.sha256(config.model_dump_json().encode()).hexdigest()
@@ -94,7 +103,7 @@ class MorningBriefing:
     async def prewarm(self) -> None:
         while True:
             now = datetime.now(HONG_KONG_TIMEZONE)
-            if 7 * 60 + 10 <= now.hour * 60 + now.minute <= 7 * 60 + 30:
+            if self.should_prewarm(now):
                 try:
                     self.request(now)
                 except Exception as exc:

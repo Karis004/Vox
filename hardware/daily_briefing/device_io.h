@@ -5,6 +5,7 @@ unsigned long httpRequestBuiltAt = 0;
 unsigned long httpReceivedAt = 0;
 
 void receiveESP() {
+  keypad.poll(millis());  // Also capture presses during blocking AT/HTTP waits.
   for (uint8_t i = 0; i < 64 && Serial1.available(); ++i) esp.feed(Serial1.read());
 }
 
@@ -163,12 +164,12 @@ void speakReceivedText() {
   waitAndReceive(100);
   const uint8_t volume[] = {0xFD, 0x00, 0x06, 0x01, 0x01, 0x5B, 0x76, 0x37, 0x5D};
   voiceSerial.write(volume, sizeof(volume));
-  delay(100);
+  waitAndReceive(100);
   const uint16_t frameLength = esp.http.textSize + 2;
   const uint8_t header[] = {0xFD, (uint8_t)(frameLength >> 8),
                           (uint8_t)frameLength, 0x01, 0x05};
   voiceSerial.write(header, sizeof(header));
-  delay(2);
+  waitAndReceive(2);
   voiceSerial.write((const uint8_t *)esp.http.text, esp.http.textSize);
   uint16_t characters = 0;
   for (uint16_t i = 0; i < esp.http.textSize; ++i)

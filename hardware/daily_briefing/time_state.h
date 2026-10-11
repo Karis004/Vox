@@ -48,6 +48,17 @@ struct TimeState {
   bool active = false;
   uint32_t nextSync = 0, firstSpeech = 0, nextSpeech = 0, period = 0;
 
+  void reschedule(uint8_t hour, uint8_t minute) {
+    firstSpeech = 0;
+    period = 86400UL;
+    if (!clock.valid) { nextSpeech = 0; return; }
+    const uint32_t local = (clock.epoch % 86400UL + 8UL * 3600) % 86400UL;
+    const uint32_t target = (uint32_t)hour * 3600UL + (uint32_t)minute * 60UL;
+    uint32_t wait = (target + 86400UL - local) % 86400UL;
+    if (!wait) wait = 86400UL;
+    nextSpeech = clock.epoch + wait;
+  }
+
   void apply(const TimePlan &plan, uint32_t receivedAt, uint32_t roundTrip) {
     const bool firstSync = !clock.valid;
     clock.set(plan.now + roundTrip / 2000, receivedAt);

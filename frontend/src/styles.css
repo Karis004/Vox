@@ -223,7 +223,7 @@ textarea:focus-visible {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(440px, 1.6fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(440px, 1.6fr);
   min-width: 0;
   min-height: 0;
 }
@@ -358,6 +358,7 @@ textarea:focus-visible {
 .canvas {
   display: grid;
   grid-template-rows: 54px minmax(0, 1fr);
+  border-right: 1px solid var(--line-dark);
 }
 
 .canvas-scroll {

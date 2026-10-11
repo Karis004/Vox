@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Query
 from fastapi.responses import PlainTextResponse
 from backend.template import HONG_KONG_TIMEZONE
+from backend import device_briefing
 
 router = APIRouter(prefix="/device")
 HK = HONG_KONG_TIMEZONE
@@ -37,6 +38,8 @@ async def device_time(
     hour: int = Query(default=7, ge=0, le=23),
     minute: int = Query(default=15, ge=0, le=59),
 ) -> PlainTextResponse:
+    if mode == "daily" and device_briefing.morning is not None:
+        device_briefing.morning.set_schedule(hour, minute)
     now = int(datetime.now(HK).timestamp())
     return PlainTextResponse(time_plan(now, mode, board, hour, minute),
                              headers={"Cache-Control": "no-store"})
