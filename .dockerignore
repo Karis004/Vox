@@ -1,6 +1,8 @@
 .git
 .gitignore
 .env
+.env.*
+..env.sw?
 .venv
 __pycache__
 .pytest_cache
