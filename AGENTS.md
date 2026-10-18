@@ -89,7 +89,7 @@ Leonardo + ESP → /device/time、/device/briefing、/device/briefing-part → T
 | 接口 | 语义 |
 | --- | --- |
 | `GET /health` | status、ai_configured；有配置不保证上游AI成功 |
-| `GET /api/modules/catalog` | 六种模板 |
+| `GET /api/modules/catalog` | 五种模板（旧actuarial类型仍兼容） |
 | `GET /api/config`、`PUT /api/config` | 读取／整体保存，PUT不是patch |
 | `POST /api/preview` | 当前编辑生成整稿，不保存 |
 | `POST /api/blocks/test` | `{block, with_ai}`，来源、变量、可选AI消息／结果／错误 |
@@ -211,10 +211,10 @@ arduino-cli compile --fqbn arduino:avr:leonardo --build-path "$env:TEMP/vox-leon
 - SSH别名 `my`，ubuntu@40.233.65.88；配置／私钥在用户电脑 `C:\Users\28623\.ssh` 管理，直接用别名，不复制进仓库或输出内容。
 - 服务器 `/home/ubuntu/Vox`；Compose服务vox、容器通常vox-vox-1；外部8086→内部8000。
 - restart unless-stopped、health检查、卷vox-data:/app/data。正常重建保留数据，**不能down -v或删／替换已有卷**。
-- AI热读取候选：Compose只读挂载项目目录到/run/vox-config，固定读取其中.env；不从挂载目录提供网页／加载源码。目录挂载避免编辑器原子替换文件后仍读旧inode。首次部署需要重建；之后设置页重新读取即可，只更新AI三项，其他配置仍需重启。候选尚未部署，线上旧版仍需重建加载.env。
+- AI热读取：Compose只读挂载项目目录到/run/vox-config，固定读取其中.env；不从挂载目录提供网页／加载源码。目录挂载避免编辑器原子替换文件后仍读旧inode。首次部署需要重建；之后设置页重新读取即可，只更新AI三项，其他配置仍需重启。2026-10-19已部署并完成实际重读验收。
 - AI变量OPENAI_API_KEY／OPENAI_MODEL／OPENAI_BASE_URL；本地另支持VOX_HOST／VOX_PORT／VOX_DATABASE_PATH。参考.env.example名称，不能用真实值写文档。
 - Docker构建前端到Python镜像，真实.env／数据库／硬件／release排除。Rollup Linux musl安装步骤解决Windows锁文件兼容，未经Linux构建核对不要删。
-- 既有服务器.env已配置，普通更新不用重填密钥；改变量需重新创建容器生效（compose up -d --force-recreate），单独restart不会加载新值。不要输出可能含密钥的compose config、容器完整环境、真实配置正文。
+- 既有服务器.env已配置，普通更新不用重填密钥；AI三项改完在设置点击重新读取配置；其他启动变量仍需重建容器生效。不要输出可能含密钥的compose config、容器完整环境、真实配置正文。
 
 获本批授权、完成检查后普通推送，再快进更新服务器：
 
@@ -270,3 +270,6 @@ docker compose ps
 
 
 2026-10-19第21节：用户确认本地效果并明确授权发布第17～20节网页／后端／Compose改动，覆盖旧批次“禁止推送”描述。本批独立设置、AI热重读、统一新闻及可编辑来源、表单精修和弹窗UX／AI阶段日志一起发布；三个hardware/daily_briefing recovery候选仍本地不提交、不上传。旧章节为历史；当前运行与配置保留证据见handoff第21节。后续新任务仍须重新按批授权。
+
+
+2026-10-19第21节最终状态：功能6956ae5已在GitHub／服务器，ARM64容器健康；.env及原始保存payload校验不变。配置热重读与AI测速成功，保存编排的两个新闻模块实际生成success（约42秒、18秒）；设备503→200、固定id与4段UTF-8接口通过。公网设置／日志固定标题、遮罩关闭验收通过，临时8087服务已关闭；未上传／听测主板，工作区三个硬件候选仍不提交。详细证据见handoff第21节；旧日期“待发布”为历史记录。
