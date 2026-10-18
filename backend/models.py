@@ -3,16 +3,55 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+from urllib.parse import urlsplit
+
+from backend.news_sources import default_news_sources
 
 
 BlockType = Literal["text", "weather", "stocks", "http", "news", "actuarial"]
 
 
+class NewsSource(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    url: str = Field(max_length=2000)
+    format: Literal['rss', 'json'] = 'rss'
+    enabled: bool = True
+    date_mode: Literal['timestamp', 'hong_kong_date'] = 'timestamp'
+    items_path: str = Field(default='items', max_length=200)
+    title_field: str = Field(default='title', max_length=200)
+    url_field: str = Field(default='url', max_length=200)
+    date_field: str = Field(default='published_at', max_length=200)
+    summary_field: str = Field(default='summary', max_length=200)
+
+    @model_validator(mode='after')
+    def valid_url(self) -> 'NewsSource':
+        try:
+            parsed = urlsplit(self.url)
+            valid = parsed.scheme in ('http', 'https') and bool(parsed.hostname)
+            parsed.port
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError('新闻来源需要有效的HTTP或HTTPS地址')
+        return self
+
+
 class NewsConfig(BaseModel):
+    topic: Literal['finance', 'insurance'] = 'finance'
     scope: Literal["global", "hong_kong"] = "global"
     count: int = Field(default=2, ge=1, le=3)
     prompt: str = Field(default="", max_length=6000)
     aliases: str = Field(default="", max_length=4000)
+    lookback_days: int | None = Field(default=None, ge=1, le=30)
+    sources: list[NewsSource] | None = Field(default=None, max_length=12)
+
+    @model_validator(mode='after')
+    def source_defaults(self) -> 'NewsConfig':
+        if self.sources is None:
+            self.sources = [NewsSource.model_validate(row) for row in default_news_sources(self.topic, self.scope)]
+        if self.lookback_days is None:
+            self.lookback_days = 7 if self.topic == 'insurance' else 2
+        return self
 
 
 class AIConfig(BaseModel):
@@ -27,6 +66,13 @@ class BriefingBlock(BaseModel):
     enabled: bool = True
     config: dict[str, Any] = Field(default_factory=dict)
     ai: AIConfig = Field(default_factory=AIConfig)
+
+    @model_validator(mode='before')
+    @classmethod
+    def legacy_news(cls, value):
+        if isinstance(value, dict) and value.get('type') == 'actuarial':
+            value = {**value, 'type': 'news', 'config': {**value.get('config', {}), 'topic': 'insurance'}}
+        return value
 
     @model_validator(mode="after")
     def validate_config(self) -> "BriefingBlock":
@@ -43,7 +89,7 @@ class BriefingBlock(BaseModel):
             if not url.startswith(("http://", "https://")):
                 raise ValueError("HTTP 模块只支持 http:// 或 https:// 地址")
         if self.type in ("news", "actuarial"):
-            NewsConfig.model_validate(self.config)
+            self.config = {**self.config, **NewsConfig.model_validate(self.config).model_dump()}
             from backend.speech import alias_map
             alias_map(str(self.config.get("aliases", "")))
         return self

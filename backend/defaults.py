@@ -1,6 +1,7 @@
-from backend.models import BriefingConfig
+from backend.models import BriefingBlock, BriefingConfig
 from backend.news import ACTUARIAL_PROMPT, FINANCIAL_PROMPT
 from backend.speech import DEFAULT_ALIASES
+from backend.news_sources import default_news_sources
 
 
 DEFAULT_CONFIG = BriefingConfig.model_validate(
@@ -62,15 +63,14 @@ DATE_VARIABLES = [
 
 MODULE_CATALOG = [
     {
-        "type": "news", "name": "金融新闻",
-        "description": "真实订阅源与AI筛选：全球或香港前一天的重大财经事件",
-        "defaults": {"scope": "global", "count": 2, "prompt": FINANCIAL_PROMPT, "aliases": DEFAULT_ALIASES},
-        "variables": DATE_VARIABLES,
-    },
-    {
-        "type": "actuarial", "name": "精算与保险新闻",
-        "description": "寿险、资本、监管、再保险及风险模型；不足时明确回顾日期",
-        "defaults": {"scope": "global", "count": 2, "prompt": ACTUARIAL_PROMPT, "aliases": DEFAULT_ALIASES},
+        "type": "news", "name": "新闻", "description": "来源订阅、筛选与中文口播",
+        "defaults": {"topic": "finance", "scope": "global", "count": 2, "lookback_days": 2,
+                     "sources": default_news_sources('finance', 'global'), "prompt": FINANCIAL_PROMPT, "aliases": DEFAULT_ALIASES},
+        "presets": [
+            {"id": "finance_global", "name": "金融新闻", "config": {"topic": "finance", "scope": "global", "count": 2, "lookback_days": 2, "sources": default_news_sources('finance', 'global'), "prompt": FINANCIAL_PROMPT, "aliases": DEFAULT_ALIASES}},
+            {"id": "finance_hong_kong", "name": "香港金融新闻", "config": {"topic": "finance", "scope": "hong_kong", "count": 2, "lookback_days": 2, "sources": default_news_sources('finance', 'hong_kong'), "prompt": FINANCIAL_PROMPT, "aliases": DEFAULT_ALIASES}},
+            {"id": "insurance", "name": "保险新闻", "config": {"topic": "insurance", "scope": "global", "count": 2, "lookback_days": 7, "sources": default_news_sources('insurance', 'global'), "prompt": ACTUARIAL_PROMPT, "aliases": DEFAULT_ALIASES}},
+        ],
         "variables": DATE_VARIABLES,
     },
     {
@@ -132,3 +132,8 @@ MODULE_CATALOG = [
         ],
     },
 ]
+
+DEFAULT_CONFIG.version = 2
+news_catalog = MODULE_CATALOG[0]
+for preset in (news_catalog['presets'][0], news_catalog['presets'][2]):
+    DEFAULT_CONFIG.blocks.insert(-1, BriefingBlock(id='news-' + preset['id'], type='news', name=preset['name'], config=preset['config']))

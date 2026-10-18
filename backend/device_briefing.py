@@ -132,6 +132,15 @@ class MorningBriefing:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
 
+    async def configuration_changed(self) -> None:
+        # Cancel an unfinished generation with the old credentials. Never modify
+        # already issued text or remove an in-flight id.
+        await self.close()
+        self.task = None
+        self.error = None
+        for snapshot in self.snapshots.values():
+            snapshot.retry_at = datetime.now(HONG_KONG_TIMEZONE)
+
 
 morning: MorningBriefing | None = None
 

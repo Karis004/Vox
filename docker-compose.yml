@@ -5,11 +5,14 @@ services:
     ports:
       - "8086:8000"
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      VOX_ENV_FILE: /run/vox-config/.env
+      VOX_DATABASE_PATH: /app/data/vox.db
+      VOX_HOST: 0.0.0.0
+      VOX_PORT: 8000
     volumes:
       - vox-data:/app/data
+      # Directory mount follows editor atomic saves; application reads only .env.
+      - .:/run/vox-config:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]

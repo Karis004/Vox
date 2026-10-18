@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Bot, LoaderCircle, Trash2, X } from 'lucide-react'
 import { api } from '../api'
 import { blockLabels } from '../icons'
-import type { BlockTestResult, BriefingBlock, CatalogItem } from '../types'
+import { NewsSourceEditor } from './NewsSourceEditor'
+import type { BlockTestResult, BriefingBlock, CatalogItem, NewsSource } from '../types'
 
 interface InspectorProps {
   block: BriefingBlock | null
@@ -260,16 +261,16 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
           <span className="section-number">02 / 数据与格式</span>
           {isNews && (
             <>
-              <p className="field-hint">先从真实新闻订阅源取标题与摘要，再由服务端已有的 AI 筛选、改写。优先香港时间前一天；金融新闻不足时回顾近两天，精算新闻回顾近七天并说明日期。不会凭 AI 记忆生成时事。</p>
-              {block.type === 'news' && (
-                <label className="field">
-                  <span>新闻范围</span>
-                  <select value={String(block.config.scope || 'global')} onChange={(event) => patchConfig('scope', event.target.value)}>
-                    <option value="global">全球金融</option>
-                    <option value="hong_kong">香港金融</option>
-                  </select>
-                </label>
-              )}
+              <label className="field"><span>预设</span>
+                <select value={block.config.topic === 'insurance' ? 'insurance' : block.config.scope === 'hong_kong' ? 'finance_hong_kong' : 'finance_global'} onChange={event => {
+                  const preset = catalog.find(item => item.type === 'news')?.presets?.find(item => item.id === event.target.value)
+                  if (preset) onChange({ ...block, type: 'news', name: preset.name, config: structuredClone(preset.config) })
+                }}>
+                  {catalog.find(item => item.type === 'news')?.presets?.map(preset => <option value={preset.id} key={preset.id}>{preset.name}</option>)}
+                </select>
+              </label>
+              <label className="field"><span>回顾天数</span><input type="number" min={1} max={30} value={Number(block.config.lookback_days || 2)} onChange={event => patchConfig('lookback_days', Number(event.target.value))} /></label>
+              <NewsSourceEditor sources={(block.config.sources || []) as NewsSource[]} onChange={sources => patchConfig('sources', sources)} />
               <label className="field">
                 <span>最多播报条数</span>
                 <select value={Number(block.config.count || 2)} onChange={(event) => patchConfig('count', Number(event.target.value))}>
@@ -280,7 +281,7 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
                 onChange={(value) => patchConfig('prompt', value)} rows={10} />
               <TextArea label="名称替换表（每行：原名=播报名称）" value={String(block.config.aliases || '')}
                 onChange={(value) => patchConfig('aliases', value)} rows={7} />
-              <p className="field-hint">保留 AIA、AXA、HSBC 等熟悉简称；Prudential 使用 PRU，英文人名和普通单词改为中文。可按你熟悉的称呼修改替换表。</p>
+              <p className="field-hint">保留熟悉简称；英文单词改为中文或简称，如 Prudential=PRU。</p>
             </>
           )}
           {block.type === 'text' && (
@@ -377,7 +378,6 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
                 {testingMode === 'source' ? '测试中' : isNews ? '生成新闻口播' : block.type === 'http' ? '测试 API 与文字' : '测试文字'}
               </button>
             </div>
-            <p className="field-hint">{isNews ? '新闻模块已包含 AI 编辑；这里展示最终口播、引用来源和实际消息。只测试，不保存。' : '使用当前设置生成这一模块的文字；即使启用了 AI，这里也只显示 AI 加工前的结果。'}</p>
             {sourceError && <pre className="test-error" role="alert">{sourceError}</pre>}
             {sourceResult && (
               <div className="test-result">
@@ -403,7 +403,7 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
         {!isNews && <section className="property-section variable-section">
           <span className="section-number">03 / 可用变量</span>
           <p className="field-hint">
-            先点输出文本或 AI Prompt，再点变量即可插入。当前插入到：{activeField === 'prompt' && block.ai.enabled ? 'AI Prompt' : '输出文本'}。
+            点击变量插入到：{activeField === 'prompt' && block.ai.enabled ? 'AI Prompt' : '输出文本'}。
           </p>
           {block.type === 'http' && !sourceResult && (
             <p className="field-hint">先点上方的“测试 API 与文字”，查看原始 JSON 并自动发现可用字段。</p>
@@ -440,7 +440,7 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
           </label>
           {block.ai.enabled && (
             <>
-              <p className="field-hint">AI 会同时收到上方生成的文字和这里写的要求。Prompt 中的变量会先替换为本次数据。</p>
+              <p className="field-hint">AI接收模块文字和此Prompt，变量会先替换。</p>
               <TextArea
                 label="Prompt"
                 value={block.ai.prompt}
@@ -470,7 +470,6 @@ export function Inspector({ block, catalog, onChange, onDelete, onClose }: Inspe
               )}
             </>
           )}
-          <p className="field-hint">AI 密钥只保存在服务端，不会发送到浏览器。</p>
         </section>}
       </div>
 

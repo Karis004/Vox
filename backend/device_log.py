@@ -113,7 +113,7 @@ class DeviceLogStore:
             'sync': "((kind IN ('device.request','device.request.started') AND json_extract(details,'$.path')='/device/time') OR (kind='device.serial' AND json_extract(details,'$.stage') IN ('sync','clock')))",
             'network': "(kind IN ('device.request','device.request.started') OR (kind='device.serial' AND json_extract(details,'$.stage') IN ('uart','wifi','tcp','send','http')))",
             'serial': "kind='device.serial'",
-            'news': "(kind LIKE 'module.%' OR kind LIKE 'briefing.%' OR kind IN ('source.request','diagnostic.ai'))",
+            'news': "(kind LIKE 'module.%' OR kind LIKE 'briefing.%' OR kind LIKE 'diagnostic.ai%' OR kind='source.request')",
         }
         with self.lock, closing(self.connect()) as db:
             rows = db.execute(f"SELECT * FROM events WHERE day=? AND id<? AND ({filters[category]}) ORDER BY id DESC LIMIT ?",

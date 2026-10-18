@@ -31,8 +31,11 @@ def failure_details(exc: Exception, stage: str = 'module') -> dict:
             result['request_id'] = request_id
         return result
     if isinstance(exc, (APITimeoutError, httpx.TimeoutException)):
+        phase = {'ReadTimeout': 'read', 'ConnectTimeout': 'connect', 'WriteTimeout': 'write', 'PoolTimeout': 'pool'}.get(
+            type(exc.__cause__ if isinstance(exc, APITimeoutError) else exc).__name__, 'unknown')
         return dict(stage='ai' if isinstance(exc, APITimeoutError) else stage, code='timeout',
-                    summary='上游请求超时', next_step='核对服务器到供应商的连接和服务状态；稍后重试。')
+                    timeout_phase=phase, summary='等待上游响应超时' if phase == 'read' else '上游请求超时',
+                    next_step='结合该次模型、配置编号、输入量和等待时限排查；短请求测速成功不等于同一新闻请求已完成。')
     if isinstance(exc, (APIConnectionError, httpx.NetworkError)):
         return dict(stage='ai' if isinstance(exc, APIConnectionError) else stage, code='connection',
                     summary='服务器无法连接上游', next_step='检查服务端的DNS、网络、TLS和供应商地址；不要从主板接线开始排查。')

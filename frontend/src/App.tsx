@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Boxes, Check, History, PanelRight, Save, SlidersHorizontal, Undo2, Waves } from 'lucide-react'
+import { Boxes, Check, Settings as SettingsIcon, History, PanelRight, Save, SlidersHorizontal, Undo2, Waves } from 'lucide-react'
 import { api } from './api'
 import { Canvas } from './components/Canvas'
 import { Inspector } from './components/Inspector'
 import { ModuleLibrary } from './components/ModuleLibrary'
 import { DeviceLogs } from './components/DeviceLogs'
+import { SettingsDialog } from './components/SettingsDialog'
 import type { BriefingBlock, BriefingConfig, BriefingResult, CatalogItem } from './types'
 
 type MobileView = 'library' | 'canvas' | 'inspector'
@@ -34,6 +35,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [logsOpen, setLogsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const configRevision = useRef(0)
 
   const dirty = useMemo(
@@ -45,10 +47,23 @@ export default function App() {
   useEffect(() => {
     Promise.all([api.getConfig(), api.getCatalog()])
       .then(([nextConfig, nextCatalog]) => {
-        setConfig(nextConfig)
+        // Upgrade only the draft. The user's saved data changes on Save.
+        const draft = structuredClone(nextConfig)
+        if (draft.version < 2) {
+          const news = nextCatalog.find(item => item.type === 'news')
+          for (const presetId of ['finance_global', 'insurance']) {
+            const preset = news?.presets?.find(item => item.id === presetId)
+            const topic = presetId === 'insurance' ? 'insurance' : 'finance'
+            if (news && preset && draft.blocks.length < 30 && !draft.blocks.some(block => block.type === 'news' && (block.config.topic || 'finance') === topic)) {
+              draft.blocks.splice(Math.max(0, draft.blocks.length - 1), 0, { ...createBlock(news), name: preset.name, config: structuredClone(preset.config) })
+            }
+          }
+          draft.version = 2
+        }
+        setConfig(draft)
         setSavedConfig(structuredClone(nextConfig))
         setCatalog(nextCatalog)
-        setSelectedId(nextConfig.blocks[0]?.id || null)
+        setSelectedId(draft.blocks[0]?.id || null)
       })
       .catch((reason: Error) => setError(reason.message))
   }, [])
@@ -150,7 +165,7 @@ export default function App() {
           <span className="brand-product">BROADCAST COMPOSER</span>
         </div>
         <div className="document-name">
-          <span className={`status-dot ${dirty ? 'is-dirty' : ''}`} />
+          <span className="status-dot" />
           <input
             value={config.title}
             onChange={(event) => updateConfig({ ...config, title: event.target.value })}
@@ -158,7 +173,8 @@ export default function App() {
           />
         </div>
         <div className="header-actions">
-          <button className="run-button" aria-label="AI状态与设备日志" title="AI配置状态、测速与设备日志" onClick={() => setLogsOpen(true)}><History size={17} /><span className="desktop-only">AI状态 / 日志</span><span className="mobile-ai-label">AI</span></button>
+          <button className="header-tool" aria-label="设置" title="设置" onClick={() => setSettingsOpen(true)}><SettingsIcon size={17} /><span>设置</span></button>
+          <button className="header-tool" aria-label="设备日志" title="设备日志" onClick={() => setLogsOpen(true)}><History size={17} /><span>日志</span></button>
           {dirty && (
             <button
               className="icon-button desktop-only"
@@ -217,6 +233,7 @@ export default function App() {
         </button>
       </nav>
 
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
       {logsOpen && <DeviceLogs onClose={() => setLogsOpen(false)} />}
       {toast && <div className="toast"><Check size={15} />{toast}</div>}
       {error && <button className="error-toast" onClick={() => setError(null)}>{error}<span>×</span></button>}

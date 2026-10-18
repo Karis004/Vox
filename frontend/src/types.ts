@@ -27,6 +27,20 @@ export interface CatalogItem {
   description: string
   defaults: Record<string, unknown>
   variables: Array<{ key: string; description: string }>
+  presets?: Array<{ id: string; name: string; config: Record<string, unknown> }>
+}
+
+export interface NewsSource {
+  name: string
+  url: string
+  format: 'rss' | 'json'
+  enabled?: boolean
+  date_mode?: 'timestamp' | 'hong_kong_date'
+  items_path?: string
+  title_field?: string
+  url_field?: string
+  date_field?: string
+  summary_field?: string
 }
 
 export interface BlockTestResult {
@@ -80,12 +94,15 @@ export interface DeviceStatus {
   modules: Array<{ type: string; status: string; diagnostics?: FailureInfo }>
   modules_at: string | null
 }
-export interface FailureInfo { stage?: string; summary?: string; next_step?: string; upstream_status?: number }
+export interface FailureInfo { stage?: string; code?: string; summary?: string; next_step?: string; upstream_status?: number }
 export interface AiCheck { status: 'success' | 'error'; duration_ms: number; diagnostics?: FailureInfo }
 export interface AiConfiguration {
+  configuration_id: string
   configured: boolean
   key_present: boolean
   model_present: boolean
   endpoint_valid: boolean
   endpoint_mode: 'custom' | 'default'
+  model: string
+  base_url: string
 }

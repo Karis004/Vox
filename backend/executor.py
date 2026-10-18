@@ -22,6 +22,17 @@ from backend.template import HONG_KONG_TIMEZONE, available_variables, date_conte
 
 
 logger = logging.getLogger(__name__)
+AI_TIMEOUT_SECONDS = 45
+
+
+def ai_request_details(settings: Settings, messages: list[dict[str, str]], max_tokens: int, timeout_s: int) -> dict:
+    model = getattr(settings, 'openai_model', '')
+    token = settings.openai_api_key.strip()
+    if token:
+        model = model.replace(token, '••••')
+    return dict(configuration_id=getattr(settings, '_ai_config_id', 'unknown'), model=model[:128],
+                input_chars=sum(len(message['content']) for message in messages),
+                max_output_tokens=max_tokens, timeout_s=timeout_s)
 
 WEATHER_CODES = {
     0: "晴朗",
@@ -173,14 +184,14 @@ class BriefingExecutor:
             try:
                 output = await self._news_ai(block, messages, 1)
                 try:
-                    text, selected = read_news_output(output, raw, config)
+                    text, selected = self._validate_news(block, output, raw, config, 1)
                 except (ValueError, TypeError, AttributeError) as exc:
                     messages.extend([
                         {"role": "assistant", "content": output},
                         {"role": "user", "content": f"请修正输出：{exc}。继续只返回指定JSON，不增加事实。英文公司采用名称表、常见简称或中文名，专业缩写用大写字母。"},
                     ])
                     output = await self._news_ai(block, messages, 2)
-                    text, selected = read_news_output(output, raw, config)
+                    text, selected = self._validate_news(block, output, raw, config, 2)
             except (APIStatusError, APIConnectionError) as exc:
                 fallback = headline_fallback(block.type, config, raw) if allow_fallback else None
                 if fallback is None:
@@ -342,23 +353,36 @@ class BriefingExecutor:
 
     async def _news_ai(self, block: BriefingBlock, messages: list[dict[str, str]], attempt: int) -> str:
         started = time.perf_counter()
-        device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='started')
+        details = ai_request_details(self.settings, messages, 1000, AI_TIMEOUT_SECONDS)
+        device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='started', **details)
         try:
             output = await self._polish_with_ai(messages, max_tokens=1000)
         except Exception as exc:
             device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='error',
                               duration_ms=round((time.perf_counter() - started) * 1000),
-                              diagnostics=failure_details(exc, 'ai'))
+                              diagnostics=failure_details(exc, 'ai'), **details)
             raise
         device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='success',
-                          duration_ms=round((time.perf_counter() - started) * 1000))
+                          duration_ms=round((time.perf_counter() - started) * 1000),
+                          output_chars=len(output), **details)
         return output
+
+    def _validate_news(self, block: BriefingBlock, output: str, raw: dict, config: NewsConfig, attempt: int):
+        details = dict(module_id=block.id, type=block.type, attempt=attempt,
+                       configuration_id=getattr(self.settings, '_ai_config_id', 'unknown'), output_chars=len(output))
+        try:
+            result = read_news_output(output, raw, config)
+        except Exception as exc:
+            device_log.record('module.validation', status='error', diagnostics=failure_details(exc, 'news_validation'), **details)
+            raise
+        device_log.record('module.validation', status='success', articles=len(result[1]), **details)
+        return result
 
     async def _polish_with_ai(self, messages: list[dict[str, str]], max_tokens: int = 300) -> str:
         client_kwargs: dict[str, str] = {"api_key": self.settings.openai_api_key}
         if self.settings.openai_base_url:
             client_kwargs["base_url"] = self.settings.openai_base_url
-        async with AsyncOpenAI(**client_kwargs, timeout=45, max_retries=0) as client:
+        async with AsyncOpenAI(**client_kwargs, timeout=AI_TIMEOUT_SECONDS, max_retries=0) as client:
             response = await client.chat.completions.create(
                 model=self.settings.openai_model,
                 messages=messages,

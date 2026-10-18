@@ -14,7 +14,7 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable'
-import { AudioLines, LoaderCircle, Play, Radio } from 'lucide-react'
+import { AudioLines, LoaderCircle, Play } from 'lucide-react'
 import type { BriefingBlock, BriefingResult } from '../types'
 import { SortableBlock } from './SortableBlock'
 
@@ -60,12 +60,10 @@ export function Canvas({
     <aside className="canvas panel-region" aria-label="模块列表与预览">
       <div className="canvas-topline">
         <span className="kicker">模块列表</span>
-        <span className="count-mark">{String(blocks.length).padStart(2, '0')}</span>
       </div>
       <div className="canvas-scroll">
         <div className="sequence-heading">
           <span>拖动排序 · 点击编辑</span>
-          <span>{blocks.filter((block) => block.enabled).length} 个启用</span>
         </div>
 
         {blocks.length ? (
@@ -106,10 +104,7 @@ export function Canvas({
           </button>
         </div>
         <section className={`transcript-output ${preview ? 'has-output' : ''}`} aria-live="polite">
-          <div className="output-meta">
-            <span><Radio size={14} />完整播报稿</span>
-          </div>
-          <p>{preview?.text || '点击生成，查看当前编排的完整文字。'}</p>
+          {preview && <p>{preview.text}</p>}
           {preview?.blocks.some((block) => block.message) && (
             <div className="preview-errors">
               {preview.blocks.filter((block) => block.message).map((block) => (
@@ -120,7 +115,6 @@ export function Canvas({
               ))}
             </div>
           )}
-          <AudioLines className="output-watermark" size={60} strokeWidth={1} />
         </section>
       </div>
     </aside>

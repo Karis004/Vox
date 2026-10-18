@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, RefreshCw, X } from 'lucide-react'
+import { Download, RefreshCw } from 'lucide-react'
+import { DialogFrame } from './DialogFrame'
 import { api } from '../api'
-import type { AiCheck, AiConfiguration, DeviceHistory, DeviceLogEvent, DeviceScript, DeviceStatus, FailureInfo } from '../types'
+import type { DeviceHistory, DeviceLogEvent, DeviceScript, DeviceStatus, FailureInfo } from '../types'
 
 const stages: Record<string, string> = { uart: 'ESP串口', wifi: 'Wi-Fi连接', tcp: '服务器TCP连接', send: '发送请求', http: 'HTTP响应', sync: '主板校时', clock: '本地时钟', keys: '按钮', schedule: '播报时间', device: '设备', speech: '语音时序' }
 const codes: Record<string, string> = { command: '开始执行', timeout: '等待响应超时', esp_error: 'ESP返回错误', http_ok: '已收到HTTP响应', http_error: 'HTTP失败', protocol_error: '连接或协议失败', sync_ok: '主板已应用时间', sync_failed: '主板校时失败', clock_wait: '尚未取得时间', clock_status: '当前时钟', waiting: '等待网络', reset: '请求重新校时', schedule: '保存的播报时间', key: '按键', requested: '请求补听', stopped: '停止后续播报', slow_response: '响应超过校时精度门槛', invalid_plan: '时间计划解析失败', part_sent: '语音帧已发送', voice_rate: '等待系数调整', wait_estimate: '本段估算等待' }
@@ -23,10 +24,12 @@ function describe(event: DeviceLogEvent) {
   const d = event.details
   if (event.kind === 'device.serial') return `USB采集 · ${stages[String(d.stage)] || d.stage} · ${codes[String(d.code)] || d.code}${d.command ? ` · ${d.command}` : ''}${d.hour !== undefined ? ` · ${d.hour}:${String(d.minute).padStart(2, '0')}` : ''}`
   if (event.kind === 'device.request.started') return `服务器收到请求 · ${d.path} · 编号${d.request_id}`
-  if (event.kind === 'module.source') return `${d.type === 'news' ? '金融新闻' : '精算与保险'} · 抓取来源 · ${d.status}${d.articles !== undefined ? ` · ${d.articles}条材料，${d.source_errors}个来源错误` : ''}`
+  if (event.kind === 'module.source') return `${d.type === 'news' ? '新闻' : '精算与保险'} · 抓取来源 · ${d.status}${d.articles !== undefined ? ` · ${d.articles}条材料，${d.source_errors}个来源错误` : ''}`
   if (event.kind === 'source.request') return `新闻来源 · ${d.source} · ${d.status}${d.http_status !== undefined ? ` · HTTP ${d.http_status}` : ''}${d.articles !== undefined ? ` · ${d.articles}条` : ''}`
-  if (event.kind === 'module.ai' || event.kind === 'diagnostic.ai') return `${event.kind === 'diagnostic.ai' ? 'AI连通检查' : '新闻AI整理'} · ${d.status}${failure(d.diagnostics)?.summary ? ` · ${failure(d.diagnostics)?.summary}` : ''}`
-  if (event.kind === 'module.test') return '网页模块测试失败'
+  if (event.kind === 'module.ai' || event.kind === 'diagnostic.ai') return `${event.kind === 'diagnostic.ai' ? 'AI连通检查' : '新闻AI整理'} · ${d.status}${d.model ? ` · ${d.model}` : ''}${failure(d.diagnostics)?.summary ? ` · ${failure(d.diagnostics)?.summary}` : ''}`
+  if (event.kind === 'diagnostic.ai.reload') return `重新读取AI配置 · ${d.status === 'success' ? '成功' : '失败'}`
+  if (event.kind === 'module.validation') return `新闻输出校验 · ${d.status === 'success' ? '通过' : '失败'}`
+  if (event.kind === 'module.test') return `网页模块测试 · ${d.status === 'success' ? '成功' : '失败'}`
   if (event.kind === 'module.fallback') return 'AI不可用，已改读带日期和来源的中文标题'
   if (event.kind === 'server.started') return '服务器启动'
   if (event.kind === 'server.stopped') return '服务器停止'
@@ -49,24 +52,19 @@ export function DeviceLogs({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [category, setCategory] = useState('all')
   const [status, setStatus] = useState<DeviceStatus | null>(null)
-  const [aiCheck, setAiCheck] = useState<AiCheck | null>(null)
-  const [aiConfiguration, setAiConfiguration] = useState<AiConfiguration | null>(null)
-  const [checkingAi, setCheckingAi] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const revision = useRef(0)
-  const dialog = useRef<HTMLDialogElement>(null)
 
-  useEffect(() => { dialog.current?.showModal(); return () => { revision.current++ } }, [])
+  useEffect(() => () => { revision.current++ }, [])
 
   async function load(older = false) {
     const request = ++revision.current
     setLoading(true); setError(null)
     try {
-      const [result, deviceStatus, configuration] = await Promise.all([api.deviceHistory(day, older ? history?.next_before : null, category), api.deviceStatus(), api.aiConfiguration()])
+      const [result, deviceStatus] = await Promise.all([api.deviceHistory(day, older ? history?.next_before : null, category), api.deviceStatus()])
       if (request !== revision.current) return
       setStatus(deviceStatus)
-      setAiConfiguration(configuration)
       setHistory(current => older && current ? { ...result, events: [...current.events, ...result.events] } : result)
     } catch (reason) {
       if (request === revision.current) setError(reason instanceof Error ? reason.message : '日志读取失败')
@@ -74,17 +72,6 @@ export function DeviceLogs({ onClose }: { onClose: () => void }) {
   }
 
   useEffect(() => { setHistory(null); setScript(null); void load() }, [day, category]) // Explicit refresh; no background polling.
-
-  async function checkAi() {
-    const request = ++revision.current
-    setLoading(true); setCheckingAi(true); setError(null); setAiCheck(null)
-    try {
-      const result = await api.checkAi()
-      if (request !== revision.current) return
-      setAiCheck(result); await load()
-    } catch (reason) { if (request === revision.current) setError(reason instanceof Error ? reason.message : '检查失败') }
-    finally { setCheckingAi(false); if (request === revision.current) setLoading(false) }
-  }
 
   async function importFile(file?: File) {
     if (!file) return
@@ -120,16 +107,7 @@ export function DeviceLogs({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <dialog className="device-log-dialog" ref={dialog} aria-label="AI状态与设备日志" onCancel={onClose}>
-      <div className="device-log-heading"><strong>AI状态与设备日志</strong><button className="icon-button" onClick={onClose} aria-label="关闭设备日志"><X size={18} /></button></div>
-      <section className="device-log-status" aria-label="AI配置与测速">
-        <h3>AI配置与测速</h3>
-        {aiConfiguration ? <p>当前运行配置：{aiConfiguration.configured ? '已读取必要配置' : '配置不完整或格式有误'} · 密钥{aiConfiguration.key_present ? '已设置' : '未设置'} · 模型{aiConfiguration.model_present ? '已设置' : '未设置'} · 接口{!aiConfiguration.endpoint_valid ? '格式无效' : aiConfiguration.endpoint_mode === 'custom' ? '自定义地址已设置' : '使用默认地址'}</p> : <p>正在读取配置状态…</p>}
-        <p className="device-log-note">只显示服务器已加载的脱敏状态，不显示或修改.env。配置齐全不代表密钥、余额或模型可用；修改服务器.env后需要重新创建容器。</p>
-        <button className="run-button" disabled={loading || !aiConfiguration?.configured} onClick={() => void checkAi()}>{checkingAi ? '正在测速，最多等待30秒…' : 'AI测速（少量调用）'}</button>
-        <div aria-live="polite">{aiCheck && <><p className={aiCheck.status === 'success' ? 'device-log-note' : 'device-log-error'}>{aiCheck.status === 'success' ? 'AI小请求成功' : 'AI小请求失败'} · 耗时{(aiCheck.duration_ms / 1000).toFixed(2)}秒（{aiCheck.duration_ms}ms）</p>{aiCheck.diagnostics && <Failure info={aiCheck.diagnostics} />}</>}</div>
-        <p className="device-log-note">测速从服务器发起，测量一次短文本生成的总耗时；不查询余额，也不代表整篇新闻或所有来源均正常。</p>
-      </section>
+    <DialogFrame title="设备日志" className="device-log-dialog" onClose={onClose}>
       <div className="device-log-toolbar">
         <label>香港日期 <input type="date" value={day} onChange={e => { if (e.target.value) setDay(e.target.value) }} /></label>
         <label>事件 <select value={category} onChange={e => setCategory(e.target.value)}><option value="all">全部</option><option value="sync">校时</option><option value="network">网络与HTTP</option><option value="news">新闻与AI</option><option value="serial">USB设备采集</option></select></label>
@@ -151,7 +129,7 @@ export function DeviceLogs({ onClose }: { onClose: () => void }) {
           {status?.last_serial_failure && <p className="device-log-error">最近设备故障：{describe(status.last_serial_failure)} · {status.last_serial_failure.at}</p>}
           {status?.last_serial_failure?.details.stage === 'uart' && <p>该故障发生在ESP串口命令阶段，尚不能归因于服务器或Wi-Fi密码。先检查ESP的3.3V供电、EN、共地及D0/D1串口路径；可先将整套设备两路USB都断开数秒后重接，再采集比较。灯亮不能证明串口通信正常。</p>}
           <p>请求没到服务器时，网页无法知道卡在供电、ESP串口还是Wi-Fi。连接电脑运行 scripts/capture-device.ps1，再导入采集文件；无需重刷现有固件。导入时间来自采集电脑，并非离线主板的准确时钟。</p>
-          {status?.modules.filter(item => item.status !== 'success' && item.diagnostics).map((item, index) => <div key={index}><strong>{item.type === 'news' ? '金融新闻' : item.type === 'actuarial' ? '精算与保险' : item.type} · {item.status === 'error' ? '最近生成失败' : '使用降级播报'}（{status.modules_at}）</strong>{item.diagnostics && <Failure info={item.diagnostics} />}</div>)}
+          {status?.modules.filter(item => item.status !== 'success' && item.diagnostics).map((item, index) => <div key={index}><strong>{item.type === 'news' ? '新闻' : item.type === 'actuarial' ? '精算与保险' : item.type} · {item.status === 'error' ? '最近生成失败' : '使用降级播报'}（{status.modules_at}）</strong>{item.diagnostics && <Failure info={item.diagnostics} />}</div>)}
         </section>
         <section aria-label="当天稿件">
           <h3>当天生成的稿件</h3>
@@ -167,6 +145,6 @@ export function DeviceLogs({ onClose }: { onClose: () => void }) {
           {history?.next_before && <button className="run-button" disabled={loading} onClick={() => void load(true)}>加载更早记录</button>}
         </section>
       </div>
-    </dialog>
+    </DialogFrame>
   )
 }

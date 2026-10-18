@@ -14,7 +14,7 @@ interface SortableBlockProps {
 }
 
 function fallbackSummary(block: BriefingBlock): string {
-  if (block.type === 'news') return `${block.config.scope === 'hong_kong' ? '香港' : '全球'}金融 · 最多 ${block.config.count || 2} 条`
+  if (block.type === 'news') return `${block.config.topic === 'insurance' ? '精算与保险' : block.config.scope === 'hong_kong' ? '香港金融' : '全球金融'} · 最多 ${block.config.count || 2} 条`
   if (block.type === 'actuarial') return `精算与保险 · 最多 ${block.config.count || 2} 条`
   if (block.type === 'text') return String(block.config.content || '空文本')
   if (block.type === 'weather') return String(block.config.city || '未设置城市')
