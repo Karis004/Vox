@@ -113,7 +113,7 @@ class BriefingExecutor:
             )
         except Exception as exc:  # A failed source must not stop the full briefing.
             message = format_error(exc)
-            logger.warning("Block %s failed: %s", block.id, message)
+            logger.warning("Block %s failed (%s)", block.id, type(exc).__name__)
             return BlockResult(
                 id=block.id,
                 name=block.name,

@@ -1,4 +1,4 @@
-import type { BlockTestResult, BriefingBlock, BriefingConfig, BriefingResult, CatalogItem } from './types'
+import type { BlockTestResult, BriefingBlock, BriefingConfig, BriefingResult, CatalogItem, DeviceHistory, DeviceScript } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -17,6 +17,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  deviceHistory: (day: string, before?: number | null) => request<DeviceHistory>(`/api/device-logs?day=${encodeURIComponent(day)}${before ? `&before=${before}` : ''}`),
+  deviceScript: (id: string) => request<DeviceScript>(`/api/device-logs/briefings/${encodeURIComponent(id)}`),
   getConfig: () => request<BriefingConfig>('/api/config'),
   getCatalog: () => request<CatalogItem[]>('/api/modules/catalog'),
   saveConfig: (config: BriefingConfig) =>

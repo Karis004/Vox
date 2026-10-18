@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Boxes, Check, PanelRight, Save, SlidersHorizontal, Undo2, Waves } from 'lucide-react'
+import { Boxes, Check, History, PanelRight, Save, SlidersHorizontal, Undo2, Waves } from 'lucide-react'
 import { api } from './api'
 import { Canvas } from './components/Canvas'
 import { Inspector } from './components/Inspector'
 import { ModuleLibrary } from './components/ModuleLibrary'
+import { DeviceLogs } from './components/DeviceLogs'
 import type { BriefingBlock, BriefingConfig, BriefingResult, CatalogItem } from './types'
 
 type MobileView = 'library' | 'canvas' | 'inspector'
@@ -32,6 +33,7 @@ export default function App() {
   const [mobileView, setMobileView] = useState<MobileView>('inspector')
   const [toast, setToast] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [logsOpen, setLogsOpen] = useState(false)
   const configRevision = useRef(0)
 
   const dirty = useMemo(
@@ -156,6 +158,7 @@ export default function App() {
           />
         </div>
         <div className="header-actions">
+          <button className="icon-button" aria-label="设备日志" title="设备日志" onClick={() => setLogsOpen(true)}><History size={17} /></button>
           {dirty && (
             <button
               className="icon-button desktop-only"
@@ -214,6 +217,7 @@ export default function App() {
         </button>
       </nav>
 
+      {logsOpen && <DeviceLogs onClose={() => setLogsOpen(false)} />}
       {toast && <div className="toast"><Check size={15} />{toast}</div>}
       {error && <button className="error-toast" onClick={() => setError(null)}>{error}<span>×</span></button>}
     </div>

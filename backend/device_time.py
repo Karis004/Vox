@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import PlainTextResponse
 from backend.template import HONG_KONG_TIMEZONE
 from backend import device_briefing
@@ -33,6 +33,7 @@ def time_plan(now: int, mode: str, board: int | None, hour: int, minute: int) ->
 
 @router.get("/time", response_class=PlainTextResponse)
 async def device_time(
+    request: Request,
     mode: Literal["test", "daily"] = "test",
     board: int | None = Query(default=None, ge=1577836800, le=4102444800),
     hour: int = Query(default=7, ge=0, le=23),
@@ -41,7 +42,13 @@ async def device_time(
     if mode == "daily" and device_briefing.morning is not None:
         device_briefing.morning.set_schedule(hour, minute)
     now = int(datetime.now(HK).timestamp())
-    return PlainTextResponse(time_plan(now, mode, board, hour, minute),
+    plan = time_plan(now, mode, board, hour, minute)
+    fields = dict(line.split('=') for line in plan.splitlines())
+    request.state.device_details = {'mode': mode, 'hour': hour, 'minute': minute,
+                                    'server_epoch': now, 'drift_s': int(fields['drift']),
+                                    'next_hk': datetime.fromtimestamp(int(fields['next']), HK).isoformat(),
+                                    'sync_hk': datetime.fromtimestamp(int(fields['sync']), HK).isoformat()}
+    return PlainTextResponse(plan,
                              headers={"Cache-Control": "no-store"})
 
 

@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from backend.executor import BriefingExecutor
 from backend.models import BriefingConfig
 from backend.template import HONG_KONG_TIMEZONE
+from backend import device_log
 
 router = APIRouter(prefix="/device")
 logger = logging.getLogger(__name__)
@@ -85,20 +86,28 @@ class MorningBriefing:
         return None
 
     async def prepare(self, config: BriefingConfig, key: str) -> None:
+        device_log.record('briefing.preparing', config_hash=key[10:],
+                          enabled_modules=sum(block.enabled for block in config.blocks))
         try:
             result = await self.get_executor().execute(config)
+            device_log.record('briefing.modules', modules=device_log.module_outcomes(result))
             # Partial failures are the same spoken fallback as the website preview.
             if result.blocks and all(block.status == "error" for block in result.blocks):
                 raise ValueError("所有启用模块生成失败，请在网页检查数据源与AI配置")
             parts = split_text(result.text)
             token = secrets.token_hex(6)
             self.snapshots[token] = Snapshot(token, key, datetime.now(HONG_KONG_TIMEZONE), parts)
+            device_log.archive(self.snapshots[token], result)
+            device_log.record('briefing.ready', id=token, parts=len(parts), bytes=len(''.join(parts).encode()),
+                              duration_ms=result.duration_ms,
+                              modules=device_log.module_outcomes(result))
             # Retain a few in-flight scripts after config changes, without unlimited memory.
             while len(self.snapshots) > 8:
                 del self.snapshots[next(iter(self.snapshots))]
         except Exception as exc:
             self.error = str(exc)
-            logger.warning("Morning briefing preparation failed: %s", exc)
+            logger.warning("Morning briefing preparation failed (%s)", type(exc).__name__)
+            device_log.record('briefing.failed', error_type=type(exc).__name__)
 
     async def prewarm(self) -> None:
         while True:
@@ -107,7 +116,7 @@ class MorningBriefing:
                 try:
                     self.request(now)
                 except Exception as exc:
-                    logger.warning("Morning briefing prewarm failed; will retry: %s", exc)
+                    logger.warning("Morning briefing prewarm failed; will retry (%s)", type(exc).__name__)
             await asyncio.sleep(30)
 
     async def close(self) -> None:
@@ -120,14 +129,16 @@ morning: MorningBriefing | None = None
 
 
 @router.get("/briefing", response_class=PlainTextResponse)
-async def manifest() -> PlainTextResponse:
+async def manifest(request: Request) -> PlainTextResponse:
     if morning is None:
         raise HTTPException(503, "晨报服务尚未启动")
     snapshot = morning.request()
+    request.state.device_details = {'state': 'ready' if snapshot else 'preparing'}
     if snapshot is None:
         # Return immediately; an AVR must not wait for slow news/AI requests.
         return PlainTextResponse("Preparing morning briefing. Retry in 30 seconds.", status_code=503,
                                  headers={"Cache-Control": "no-store", "Retry-After": "30"})
+    request.state.device_details.update(id=snapshot.token, parts=len(snapshot.parts))
     return PlainTextResponse(f"v=1\nid={snapshot.token}\nparts={len(snapshot.parts)}\n",
                              headers={"Cache-Control": "no-store"})
 

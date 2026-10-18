@@ -54,3 +54,19 @@ export interface BriefingResult {
   duration_ms: number
   blocks: BlockResult[]
 }
+
+export interface DeviceLogEvent { id: number; at: string; kind: string; details: Record<string, unknown> }
+export interface DeviceHistory {
+  day: string
+  events: DeviceLogEvent[]
+  briefings: Array<{ id: string; created_at: string; parts: number; bytes: number }>
+  next_before: number | null
+  retention_days: number
+  max_events: number
+}
+export interface DeviceScript {
+  id: string
+  created_at: string
+  text: string
+  parts: Array<{ part: number; bytes: number; characters: number; estimated_wait_ms: number; text: string }>
+}

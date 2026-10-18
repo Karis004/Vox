@@ -22,6 +22,9 @@ unsigned long speechUntil = 0;
 TimeState timer;
 bool consoleOpen = false;
 bool voiceBusy = false, manualPending = false;
+bool prefetched = false, currentManual = false;
+uint8_t syncReason = 0;  // boot/reset/save/hourly
+uint32_t partSentAt = 0, lastPartWait = 0, lastFetchDuration = 0;
 uint8_t feedback = NO_ACTION;
 enum VoiceNotice : uint8_t {
   RESET_REQUESTED = HOUR_LOCKED + 1, SYNC_OK, SYNC_FAIL, WAIT_CLOCK,
@@ -42,11 +45,13 @@ bool makeTimePath(char *path, size_t capacity) {
   timer.clock.tick(millis());
   int count;
   if (timer.clock.valid)
-    count = snprintf(path, capacity, "/device/time?mode=daily&hour=%u&minute=%u&board=%lu",
-      schedule.hour, schedule.minute, (unsigned long)timer.clock.epoch);
+    count = snprintf_P(path, capacity, PSTR("/device/time?mode=daily&hour=%u&minute=%u&board=%lu&fw=log1&reason=%s"),
+      schedule.hour, schedule.minute, (unsigned long)timer.clock.epoch,
+      syncReason == 0 ? "boot" : syncReason == 1 ? "reset" : syncReason == 2 ? "save" : "hourly");
   else
-    count = snprintf(path, capacity, "/device/time?mode=daily&hour=%u&minute=%u",
-      schedule.hour, schedule.minute);
+    count = snprintf_P(path, capacity, PSTR("/device/time?mode=daily&hour=%u&minute=%u&fw=log1&reason=%s"),
+      schedule.hour, schedule.minute,
+      syncReason == 0 ? "boot" : syncReason == 1 ? "reset" : syncReason == 2 ? "save" : "hourly");
   return count > 0 && count < (int)capacity;
 }
 
@@ -82,6 +87,7 @@ void syncTime() {
     timer.clock.tick(millis());
     lastDrift = plan.drift;
     syncFailureNotified = false;
+    syncReason = 3;
     if (syncFeedbackPending) { feedback = SYNC_OK; syncFeedbackPending = false; }
     Serial.print(F("[SYNC OK] request_ms=")); Serial.println(elapsed);
     printStatus();
@@ -97,6 +103,8 @@ void syncTime() {
 
 void clearBriefing() {
   currentEvent = 0;
+  prefetched = currentManual = false;
+  partSentAt = lastPartWait = lastFetchDuration = 0;
   snapshotId[0] = '\0';
   nextPart = partCount = 0;
   jobNoticeIssued = false;
@@ -128,6 +136,7 @@ void handleKey(uint8_t key) {
     editor.cancel();
     feedback = RESET_REQUESTED;
     syncFeedbackPending = true;
+    syncReason = 1;
     syncFailureNotified = false;
     manualPending = false;
     clearBriefing();
@@ -159,6 +168,7 @@ void handleKey(uint8_t key) {
     timer.reschedule(schedule.hour, schedule.minute);
     timer.active = true;
     timer.nextSync = 0;
+    syncReason = 2;
     syncRetryAt = millis();  // Advertise the changed time to server prewarming.
     printStatus();
   }
@@ -177,6 +187,7 @@ void processKeys() {
 
 void speakFeedback() {
   if (!feedback || voiceBusy) return;  // Notices may speak while a job waits for a script.
+  prefetched = false;  // The shared HTTP text buffer will hold this notice instead.
   if (feedback == HOUR_CHANGED)
     snprintf_P(esp.http.text, sizeof(esp.http.text), PSTR("小时%u点。"), editor.hour);
   else if (feedback == MINUTE_CHANGED)
@@ -230,9 +241,32 @@ bool readManifest(const char *body) {
   return true;
 }
 
+bool makeManifestPath(char *path, size_t capacity) {
+  const int count = snprintf_P(path, capacity, PSTR("/device/briefing?fw=log1&trigger=%s&event=%lu"),
+    currentManual ? "button" : "daily", (unsigned long)currentEvent);
+  return count > 0 && count < (int)capacity;
+}
+
+void sendPart() {
+  Serial.print(F("[PART SEND] index=")); Serial.print(nextPart);
+  Serial.print(F(" bytes=")); Serial.print(esp.http.textSize);
+  Serial.print(F(" fetch_ms=")); Serial.print(lastFetchDuration);
+  Serial.print(F(" preloaded=")); Serial.print(prefetched);
+  if (partSentAt) { Serial.print(F(" frame_interval_ms=")); Serial.print(millis() - partSentAt); }
+  Serial.println();
+  speakReceivedText();
+  partSentAt = millis();
+  lastPartWait = speechUntil - partSentAt;
+  Serial.print(F(" estimated_wait_ms=")); Serial.println(lastPartWait);
+  voiceBusy = true;
+  prefetched = false;
+  ++nextPart;
+  speechRetryAt = millis();
+}
+
 void advanceBriefing() {
   if (!snapshotId[0]) {
-    const bool fetched = fetchText("/device/briefing");
+    const bool fetched = fetchText("/device/briefing", makeManifestPath);
     processKeys();
     if (!currentEvent) return;  // A reset during the request cancels this job.
     if (fetched && readManifest(esp.http.text)) {
@@ -250,22 +284,42 @@ void advanceBriefing() {
     return;
   }
   if (nextPart == partCount) {
+    if (voiceBusy) return;
+    // Report after playback's estimated wait, never add an HTTP request between frames.
+    char path[152];
+    snprintf_P(path, sizeof(path), PSTR("/device/event?name=finished&id=%s&sent=%u&sent_ms=%lu&wait_ms=%lu&fetch_ms=%lu&fw=log1"),
+      snapshotId, nextPart - 1, (unsigned long)partSentAt, (unsigned long)lastPartWait,
+      (unsigned long)lastFetchDuration);
+    fetchText(path);
+    processKeys();
+    if (!currentEvent) return;
     timer.clock.tick(millis());
     timer.handled(currentEvent);
     clearBriefing();
     Serial.println(F("[BRIEFING SENT] All parts sent and estimated playback wait finished."));
     return;
   }
-  char path[72];
-  snprintf(path, sizeof(path), "/device/briefing-part?id=%s&part=%u", snapshotId, nextPart);
+  if (prefetched) {
+    if (!voiceBusy) sendPart();
+    return;
+  }
+  char path[152];
+  if (nextPart)
+    snprintf_P(path, sizeof(path), PSTR("/device/briefing-part?id=%s&part=%u&fw=log1&sent=%u&sent_ms=%lu&wait_ms=%lu&fetch_ms=%lu&preload=%u"),
+      snapshotId, nextPart, nextPart - 1, (unsigned long)partSentAt,
+      (unsigned long)lastPartWait, (unsigned long)lastFetchDuration, voiceBusy ? 1 : 0);
+  else
+    snprintf_P(path, sizeof(path), PSTR("/device/briefing-part?id=%s&part=%u&fw=log1"), snapshotId, nextPart);
+  const uint32_t started = millis();
   const bool fetched = fetchText(path);
+  lastFetchDuration = millis() - started;
   processKeys();
   if (!currentEvent) return;
   if (fetched) {
     jobNoticeIssued = false;
-    speakReceivedText();
-    voiceBusy = true;
-    ++nextPart;
+    prefetched = true;  // Reuse the existing 192-byte buffer; no second text buffer.
+    if (voiceBusy && ready(millis(), speechUntil)) voiceBusy = false;
+    if (!voiceBusy) sendPart();
     speechRetryAt = millis();
   } else {
     // A failed part is retried at the same index; already sent parts stay sent.
@@ -327,7 +381,7 @@ void loop() {
   uint32_t now = millis();
   if (voiceBusy && ready(now, speechUntil)) voiceBusy = false;
   speakFeedback();
-  if (timer.active && editor.stage == EDIT_IDLE && !voiceBusy && millis() - startupAt >= 2000 &&
+  if (timer.active && editor.stage == EDIT_IDLE && !voiceBusy && !currentEvent && millis() - startupAt >= 2000 &&
       (!timer.clock.valid || timer.clock.epoch >= timer.nextSync) && ready(now, syncRetryAt)) syncTime();
   processKeys();
   speakFeedback();  // Announce sync results before any ready news part is sent.
@@ -336,9 +390,10 @@ void loop() {
   if (timer.active && editor.stage == EDIT_IDLE && timer.clock.valid && !currentEvent) {
     // A due daily slot takes priority and absorbs an immediate button request.
     currentEvent = timer.due();
-    if (!currentEvent && manualPending) currentEvent = timer.clock.epoch;
+    if (!currentEvent && manualPending) { currentEvent = timer.clock.epoch; currentManual = true; }
     if (currentEvent) manualPending = false;
   }
-  if (timer.active && editor.stage == EDIT_IDLE && currentEvent && !voiceBusy && ready(now, speechRetryAt)) advanceBriefing();
+  if (timer.active && editor.stage == EDIT_IDLE && currentEvent && ready(now, speechRetryAt) &&
+      (!voiceBusy || (!prefetched && snapshotId[0] && nextPart < partCount))) advanceBriefing();
   if (Serial && millis() - statusAt >= 10000) { statusAt = millis(); printStatus(); }
 }

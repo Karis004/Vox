@@ -3,17 +3,19 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 import asyncio
+import time
+import logging
 from contextlib import asynccontextmanager
 
 import httpx
 from openai import APIStatusError
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.defaults import MODULE_CATALOG
-from backend import device_briefing
+from backend import device_briefing, device_log
 from backend.device_time import router as device_time_router
 from backend.executor import BriefingExecutor, format_error
 from backend.models import BlockTestRequest, BlockTestResult, BriefingConfig, BriefingResult, HealthResponse
@@ -23,6 +25,12 @@ from backend.settings import Settings, get_settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        device_log.store = device_log.DeviceLogStore(get_repository().database_path.with_name('device-log.db'))
+    except Exception as exc:
+        device_log.store = None
+        logging.getLogger(__name__).warning('Device history unavailable (%s)', type(exc).__name__)
+    device_log.record('server.started')
     device_briefing.morning = device_briefing.MorningBriefing(
         lambda: get_repository().get(), lambda: BriefingExecutor(get_settings()))
     prewarm = asyncio.create_task(device_briefing.morning.prewarm())
@@ -33,6 +41,8 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(prewarm, return_exceptions=True)
         await device_briefing.morning.close()
         device_briefing.morning = None
+        device_log.record('server.stopped')
+        device_log.store = None
 
 
 app = FastAPI(
@@ -50,6 +60,29 @@ app.add_middleware(
 )
 app.include_router(device_time_router)
 app.include_router(device_briefing.router)
+app.include_router(device_log.router)
+
+
+@app.middleware('http')
+async def device_request_history(request: Request, call_next):
+    if not request.url.path.startswith('/device/'):
+        return await call_next(request)
+    started = time.perf_counter()
+    path = request.url.path if request.url.path in ('/device/time', '/device/time-speech',
+        '/device/briefing', '/device/briefing-part', '/device/event') else '/device/(unknown)'
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        device_log.record('device.request', path=path, status=500,
+                          duration_ms=round((time.perf_counter() - started) * 1000),
+                          error_type=type(exc).__name__)
+        raise
+    details = device_log.request_details(request)
+    details.update(path=path, status=response.status_code,
+                   duration_ms=round((time.perf_counter() - started) * 1000),
+                   bytes=int(response.headers.get('content-length', 0)))
+    await asyncio.to_thread(device_log.record, 'device.request', **details)
+    return response
 
 
 @lru_cache

@@ -221,6 +221,26 @@ textarea:focus-visible {
   animation: spin 0.8s linear infinite;
 }
 
+.device-log-dialog { width: min(1000px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--ink); border-radius: 6px; color: var(--ink); background: var(--paper-bright); }
+.device-log-dialog::backdrop { background: #17171588; }
+.device-log-heading, .device-log-toolbar { display: flex; align-items: center; gap: 12px; padding: 14px 18px; flex-wrap: wrap; }
+.device-log-heading { justify-content: space-between; border-bottom: 1px solid var(--line); }
+.device-log-toolbar label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.device-log-toolbar input { width: auto; padding: 6px; }
+.device-log-toolbar a { text-decoration: none; color: inherit; }
+.device-log-note, .device-log-error { margin: 0; padding: 0 18px 14px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.device-log-error { color: #b33924; }
+.device-log-content { padding: 0 18px 18px; }
+.device-log-content h3 { font-size: 14px; margin: 16px 0 10px; }
+.device-log-script { display: block; width: 100%; text-align: left; padding: 10px; border: 1px solid var(--line); background: transparent; cursor: pointer; margin-bottom: 6px; font-size: 13px; overflow-wrap: anywhere; }
+.device-log-event { border-bottom: 1px solid var(--line); padding: 10px 0; font-size: 13px; }
+.device-log-event summary { cursor: pointer; line-height: 1.7; }
+.device-log-event time { font-family: var(--mono); color: var(--muted); }
+.device-log-event pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.device-log-transcript { padding: 12px; border: 1px solid var(--line); }
+.device-log-transcript p { white-space: pre-wrap; line-height: 1.8; font-size: 14px; overflow-wrap: anywhere; }
+.device-log-transcript summary { cursor: pointer; font-size: 13px; }
+
 .workspace {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(440px, 1.6fr);
