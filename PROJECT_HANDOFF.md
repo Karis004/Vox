@@ -1,6 +1,6 @@
 # Vox 项目交接
 
-更新：2026-10-11；目录C:/Users/28623/Documents/ForFun/Vox。当前目标：网页编排真实内容，服务器生成中文晨报，Leonardo每天香港07:15主动请求并分段朗读。加拿大服务器指定40.233.65.88，网页和设备统一外部HTTP端口8086。
+更新：2026-10-18；目录C:/Users/28623/Documents/ForFun/Vox。当前目标：网页编排真实内容，服务器生成中文晨报，Leonardo每天香港设定时间（默认07:15）主动请求并分段朗读。加拿大服务器指定40.233.65.88，网页和设备统一外部HTTP端口8086。
 
 最新进展2026-10-18：用户确认已上传第12节日志／预取固件，并授权本批推送GitHub与更新服务器。发布结果见第13节；下文10月11日的“尚未上传／待发布”保留为当时记录。
 
@@ -195,3 +195,11 @@ Compose外部8086内部8000，命名卷vox-data:/app/data，restart unless-stopp
 用户确认已经上传 `vox-daily-logs-firmware.zip`，明确授权将当前累计改动推送GitHub并更新服务器。固件源码固定访问40.233.65.88:8086；不改固件时主板请求服务器，本地可单独验证网页／后端，但实机联调使用服务器。后续只改网页／后端通常无需重新刷主板，不为调试来回换IP。
 
 发布前重新核对工作区，原未提交改动全部属于上述本地批次；TypeScript／Vite构建、临时数据库校时／503→200／UTF-8分段／Content-Length／日志存档／导出通过。服务器工作区干净、HEAD为a8fc2fd，vox-vox-1已运行6天且健康。发布前保存配置响应SHA256为c6cf5c4faf197e840c960eb1c044ab78984dcdc30555ccd5489ef43cc4c3feef；只记录hash，不输出正文或真实.env。此次授权不包含代理上传硬件，不启动本机服务。
+
+发布完成：功能提交8cb5d96推送origin/main，SSH my在/home/ubuntu/Vox快进拉取，docker compose up -d --build --wait --wait-timeout 120成功，ARM64镜像sha256:78f5dca5d59f25f0ca39a059dba6644c32c35f0a94331695749a070d85f2ea8b，vox-vox-1健康，8086→8000。既有.env和vox-data卷沿用；更新后服务器内及公网保存配置SHA256与上文一致，无需用户重配.env。随后仅提交／拉取发布记录等文档，运行镜像保持8cb5d96功能内容，未因文档再次重启。
+
+公网直连验收：/health为ok且ai_configured=true；/device/time?mode=test返回原纯文本格式（选test避免覆盖实际主板保存时间对应的服务端预热计划）。manifest503→200，实际生成2段178／97字节，各段UTF-8、Content-Length、text/plain正确，无Transfer-Encoding。日志API、实际稿件全文、当天JSON附件导出通过；浏览器实际打开右上角设备日志、刷新、读取稿件并显示事件列表，截图release/vox-device-logs-deployed-20261018.png。此截图／GET请求由代理验收产生，不是实机完成证据；截至检查未出现fw=log1请求。用户已确认上传，但新固件出声／预取改善／末段finished还需主板发起后观察。
+
+额外发现：本次生成中text／weather成功，news／actuarial均记录ai_http、upstream_status522；独立短文本AI模块测试同样返回“AI 服务 HTTP 522”。说明上游AI调用当前不可用，不能将本次2段接口成功称作新闻生成成功；现有失败提示保留在稿件中，未改用户编排、密钥、模型或供应商。已有快照按原3小时规则复用，未为清缓存重启服务；上游恢复后的新稿需要正常重新生成。后续排查先看日志中模块状态，再用网页模块测试核对当前供应商，不从主板接线重新开始。
+
+本轮更新README、AGENTS、硬件说明的当前状态，确认程序地址始终是服务器，不需要用户再次刷主板。本地固件ZIP只同步操作文档，ino与五个h保持用户已上传版本；旧buttons包／server源码包保留原交付记录。没有启动本机监听／Docker、没有修改其他服务器项目，也没有代理上传硬件。

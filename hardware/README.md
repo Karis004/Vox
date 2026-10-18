@@ -1,6 +1,6 @@
 # 硬件与成功接线
 
-Leonardo + ESP-01S + HS-S77-PL。按钮联网与约10分钟时间短测已实机通过；2026-10-11用户最新确认已上传上一发布批次daily_briefing并实际播报，存在段间停顿。本地候选新增预取及日志遥测，尚未上传。语音板有TX、RX、VCC、GND，没有BUSY；当前程序仅发送，不读取TX。停顿诊断、自然语音候选和安装整理见 [DIAGNOSTICS.md](DIAGNOSTICS.md)。
+Leonardo + ESP-01S + HS-S77-PL。按钮联网与约10分钟时间短测已实机通过；旧daily_briefing实际播报存在段间停顿。2026-10-18用户确认已经上传新增预取／日志遥测固件，配套服务器已更新；新版本停顿改善尚待听测。语音板有TX、RX、VCC、GND，没有BUSY；当前程序仅发送，不读取TX。停顿诊断、自然语音候选和安装整理见 [DIAGNOSTICS.md](DIAGNOSTICS.md)。
 
 ## 保留程序
 
