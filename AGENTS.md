@@ -64,6 +64,8 @@ Leonardo + ESP → /device/time、/device/briefing、/device/briefing-part → T
 | `backend/device_time.py` | test/daily时间计划，daily登记主板设定时间 |
 | `backend/device_briefing.py` | 动态预热、按需生成、固定快照、180字节分段 |
 | `backend/device_log.py` | 同目录独立SQLite设备历史／稿件、白名单遥测、保留期限、查询／导出 |
+| `backend/diagnostics.py` | 安全的上游故障分类、中文解释和下一步建议 |
+| `scripts/capture-device.ps1` | 无需刷固件的临时USB诊断采集／已有串口文本转换；JSONL不存正文／密码 |
 | `backend/settings.py`、`.env.example` | 服务端配置名称和默认值 |
 | `hardware/daily_briefing/` | 正式多按钮固件：ino、五个h、README |
 | `hardware/time_http_voice/` | 已成功实测的独立时间短测回退 |
@@ -95,6 +97,10 @@ Leonardo + ESP → /device/time、/device/briefing、/device/briefing-part → T
 | `GET /api/device-logs` | 香港日期、before游标、limit1～200，最新事件优先 |
 | `GET /api/device-logs/briefings/{id}` | 存档稿件及分段估算 |
 | `GET /api/device-logs/export` | 指定香港日期事件＋稿件JSON下载 |
+| `GET /api/device-logs/status` | 最新固件请求／响应与USB校时确认分开显示 |
+| `POST /api/device-logs/import` | 白名单USB事件导入，500条／批、session＋seq去重 |
+| `GET /api/ai/status` | 当前进程AI配置的布尔状态和接口模式，无密钥／模型／地址值；不联网调用 |
+| `POST /api/device-logs/check-ai` | 显式小型AI请求、记录安全结果，不自动切换供应商 |
 
 模型变更同时核对types、编辑器、执行器。未保存网页草稿不能进入设备缓存。不存在的api/device路由返回404，不能回退前端HTML。
 
@@ -109,6 +115,8 @@ Leonardo + ESP → /device/time、/device/briefing、/device/briefing-part → T
 - **TTS能读字母，不能正确读英文单词。** 保留AIA、AXA、HSBC、PRU、PWC、EY、KPMG、股票代码和专业缩写；Prudential→PRU、Donald Trump→特朗普。不能全部强制换成中文公司名，用户更熟悉AIA而非“友邦”。
 - 名称表每行 `原名=播报名称`，网页可改。普通文本／HTTP输出不保证自动翻译，须按内容处理。新闻模块已经包含AI，不再叠加第二层普通AI。
 
+服务端降级：全球增加香港电台财经／国际，专业增加香港保监局中文RSS。仅正常整稿／设备路径在AI HTTP／连接失败时可回退到符合范围的中文原标题，必须声明标题模式、日期、来源，保留warning和AI故障诊断；不编摘要、不读英文词，不合适则继续报错。手动模块测试仍返回原AI错误，不能被降级掩盖。保监局明确的YYYY-MM-DD按香港date_only处理，其余无时区来源不猜。error和headline_fallback稿五分钟后可重试，旧快照不变。
+
 ## 7. 硬件协议必须兼容
 
 正式设备访问 `40.233.65.88:8086` 的普通HTTP。Leonardo接收缓冲192字节，不能让它解析整篇JSON、长HTML、登录页或TLS。
@@ -121,6 +129,8 @@ Leonardo + ESP → /device/time、/device/briefing、/device/briefing-part → T
 - 香港日期＋保存配置hash缓存，内存快照3小时、最多8份；已取清单稿子固定。有效时复用，下午超过期限可能重新生成。
 - 预热跟随最新daily请求的时间，前5分钟至后15分钟，每30秒检查、支持跨午夜。重启暂回07:15直到主板再次登记；任意时间都能按需生成。
 - 单主板、单进程内存状态；不要直接启多个ASGI worker，否则预热与快照会分散。
+
+服务端调整：健康稿仍复用3小时；有error模块的部分失败稿五分钟后允许重新生成，但原id／正文不变且在途快照仍按三小时保留。不能为刷新新闻直接改写设备正在请求的快照。
 
 ## 8. 正式固件：时间、按钮和接线
 
@@ -140,6 +150,8 @@ Leonardo + ESP → /device/time、/device/briefing、/device/briefing-part → T
 例：6号7次→1号→5号4次→1号=07:20；只6号7次→1号已保存07:00，再1号或等30秒退出。超时丢未确认草稿，保留已确认时间。快速连按播最新值，避免声音堆叠。
 
 AT／HTTP等待中扫描按键，队列最多39事件，返回后处理，不能在收包回调内嵌套HTTP。TTS无完成回传，按每字符450ms＋1500ms估算。8号／串口x只停后续段落，不能截断已发送的一帧；反馈可能等当前语音或网络请求结束。
+
+本地recovery候选基于实测5～10秒静音将默认等待校准为400ms／字符＋1500ms（已发布log1仍450），保留预取；空闲串口+／-按25ms调整，300～600，断电回400。没有新TTS回执，不能承诺恰好无静音。AT最多3次探测，未首次校时成功时重试基准5秒、有时钟仍30秒；SYNC DETAIL阶段1串口、2Wi-Fi、3TCP、4发送、5HTTP、6计划解析、7延迟过大，保留5秒精度门槛。不要把这些候选说成已刷入用户主板。
 
 当前本地候选在播放当前段时预取下一段，**复用esp.http.text，不另分配文本缓冲**。prefetched为真时缓冲是未发送的下一段；校时不得覆盖，所以晨报期间推迟校时；提示使用同一缓冲前必须使prefetched失效并重取同一段。reset清掉预取。估算等待结束再发下一帧，不能为减停顿盲目缩短等待。末段之后一次尽力finished报告，无单独段间HTTP。固件新增可选query不会改变原ASCII／UTF-8响应格式。
 
@@ -226,6 +238,10 @@ docker compose ps
 
 2026-10-18更新：用户确认已经上传日志／预取固件包；功能提交8cb5d96已推送并在服务器ARM64重建，容器健康、8086网页／设备分段／日志／稿件／导出及真实日志窗口验收通过，原保存配置hash不变，无需重配.env。本轮新闻与精算模块的AI上游返回522，小型AI请求复核同样522；天气／文本成功，未擅自更换供应商或密钥。尚未观察到本轮fw=log1的主板请求，不把代理验收HTTP当成实机播报。详细证据见handoff第13节。保留固定服务器地址，不为本地测试来回改主板；网页／后端可进程内验证，真实设备联调在已授权的服务器版本上进行。未启动本机服务，代理未上传硬件；下一批发布仍需用户指令。
 
+同日后续排查：用户确认USB连接，本机COM10实际只读捕获AT→约2.5s超时→SYNC FAIL，保存播报时间08:00、未首次校时；故障尚未到Wi-Fi／TCP／服务器阶段，不能断定ESP芯片坏了或密码错。私密采集文件在data/diagnostics/，不进Git；未改主板固件。当前仅本地新增结构化诊断／USB导入、请求开始／返回ID和五分钟失败稿重试；GitHub／服务器仍98accc1，详情见handoff第14节。设备没网时服务器无法知道其尝试，需要USB采集或将来另做固件缓冲上报，不能宣称离线日志自动已在网站。events表本地新增可空source_key及唯一索引用于去重，升级必须保留原记录，不重置库。
+
+再后续实机证据（第15节）：用户断电后已恢复校时／播报；服务器14:19真实请求＋14:29 USB CLOCK有效。预取fetch596／664ms且preload=1，旧段等待33000ms／间隔33241ms，用户感到5～10秒静音；不能再声称主板持续无时钟或未收到实机请求。当前本地recovery候选26338flash、1617静态RAM、余943，包名vox-daily-recovery-firmware.zip，未上传；logs包保持已交付原样。AI仍20秒522，中文标题降级真实测试两个范围各1条可用（保险回顾日期10月14日）。本地所有增强仍未推送／部署；网页／后端与固件分别应用，不能承诺仅更新服务器就能改变板上等待。
+
 文档分工：
 
 - AGENTS：长期约定、导航、协议限制、简短快照；架构／命令／约定改变时同步，不堆聊天流水。
@@ -234,3 +250,5 @@ docker compose ps
 - hardware各README：接线、上传、按键与实机限制。
 
 结束任务更新受影响文档；旧描述与代码冲突则修正并保留有用日期，避免过时“待发布”或旧包名误导。最终说明完成内容、实际验证、待用户硬件操作和可点击文件；本批未授权发布则留在本地。
+
+2026-10-19本批授权：用户已在服务器更换AI的.env配置，要求发布网页配置状态／测速并更新GitHub和服务器。入口为右上角“AI状态 / 日志”；GET /api/ai/status只回布尔状态／接口模式，不回私密值、不写.env，显式POST测速才发少量AI调用，最多30秒，显示耗时和安全诊断。一起发布之前后端／网页日志与新闻降级增强；hardware/daily_briefing的recovery源码及包继续本地保留，不上传主板。实际部署／新供应商复核以handoff第16节为准，上文10月18日未发布状态保留为历史记录。

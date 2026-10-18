@@ -71,6 +71,7 @@ class BlockResult(BaseModel):
     text: str = ""
     message: str | None = None
     duration_ms: int = 0
+    diagnostics: dict[str, Any] | None = None
 
 
 class BriefingResult(BaseModel):

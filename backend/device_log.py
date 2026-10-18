@@ -7,11 +7,14 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Lock
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from backend.template import HONG_KONG_TIMEZONE as HK
+from backend.diagnostics import http_failure
 
 RETENTION_DAYS, MAX_EVENTS, MAX_BRIEFINGS = 30, 10000, 200
 router = APIRouter()
@@ -37,6 +40,10 @@ def module_outcomes(result):
                 'ConnectError', 'APIConnectionError', 'APITimeoutError') else 'module_error'
         elif block.status == 'warning':
             item['error_kind'] = 'partial_source_or_ai_warning'
+        if block.diagnostics:
+            item['diagnostics'] = block.diagnostics
+        elif 'upstream_status' in item:
+            item['diagnostics'] = http_failure(item['upstream_status'], 'ai' if item['error_kind'] == 'ai_http' else 'source')
         outcomes.append(item)
     return outcomes
 
@@ -56,6 +63,9 @@ class DeviceLogStore:
                     parts INTEGER NOT NULL, bytes INTEGER NOT NULL, payload TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS scripts_day ON scripts(day, at);
             """)
+            if 'source_key' not in {r['name'] for r in db.execute('PRAGMA table_info(events)')}:
+                db.execute('ALTER TABLE events ADD COLUMN source_key TEXT')
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS events_source_key ON events(source_key)')
         self.prune()
 
     def connect(self):
@@ -96,10 +106,17 @@ class DeviceLogStore:
                         len(snapshot.parts), len(payload['text'].encode()), json.dumps(payload, ensure_ascii=False)))
             self._prune(db)
 
-    def history(self, day: str, before: int | None, limit: int):
+    def history(self, day: str, before: int | None, limit: int, category: str = 'all'):
         self.prune()
+        filters = {
+            'all': '1',
+            'sync': "((kind IN ('device.request','device.request.started') AND json_extract(details,'$.path')='/device/time') OR (kind='device.serial' AND json_extract(details,'$.stage') IN ('sync','clock')))",
+            'network': "(kind IN ('device.request','device.request.started') OR (kind='device.serial' AND json_extract(details,'$.stage') IN ('uart','wifi','tcp','send','http')))",
+            'serial': "kind='device.serial'",
+            'news': "(kind LIKE 'module.%' OR kind LIKE 'briefing.%' OR kind IN ('source.request','diagnostic.ai'))",
+        }
         with self.lock, closing(self.connect()) as db:
-            rows = db.execute("SELECT * FROM events WHERE day=? AND id<? ORDER BY id DESC LIMIT ?",
+            rows = db.execute(f"SELECT * FROM events WHERE day=? AND id<? AND ({filters[category]}) ORDER BY id DESC LIMIT ?",
                               (day, before or 2**63-1, limit + 1)).fetchall()
             scripts = db.execute("SELECT token AS id,at AS created_at,parts,bytes FROM scripts "
                                  "WHERE day=? ORDER BY at DESC", (day,)).fetchall()
@@ -114,6 +131,46 @@ class DeviceLogStore:
         with self.lock, closing(self.connect()) as db:
             row = db.execute("SELECT payload FROM scripts WHERE token=?", (token,)).fetchone()
         return json.loads(row['payload']) if row else None
+
+    def import_serial(self, events):
+        now = datetime.now(HK)
+        if any(e.at > now + timedelta(minutes=5) or e.at < now - timedelta(days=RETENTION_DAYS) for e in events):
+            raise HTTPException(422, '采集时间须为最近30天，且不能超过服务器当前时间5分钟')
+        imported = 0
+        with self.lock, closing(self.connect()) as db, db:
+            for event in events:
+                at = event.at.astimezone(HK)
+                details = event.model_dump(mode='json', exclude_none=True, exclude={'at'})
+                details['origin'] = 'usb_serial'
+                cursor = db.execute('INSERT OR IGNORE INTO events(at,day,kind,details,source_key) VALUES(?,?,?,?,?)',
+                    (at.isoformat(timespec='milliseconds'), at.date().isoformat(), 'device.serial',
+                     json.dumps(details, ensure_ascii=False), f'serial:{event.session}:{event.seq}'))
+                imported += cursor.rowcount
+            self._prune(db)
+        return {'imported': imported, 'duplicates': len(events) - imported}
+
+    def status(self):
+        self.prune()
+        with self.lock, closing(self.connect()) as db:
+            rows = db.execute('SELECT * FROM events ORDER BY id DESC LIMIT ?', (MAX_EVENTS,)).fetchall()
+        # Imported rows may arrive late; select by captured time, not insertion id.
+        events = sorted((dict(id=r['id'], at=r['at'], kind=r['kind'], details=json.loads(r['details'])) for r in rows),
+                        key=lambda e: e['at'], reverse=True)
+        def latest(predicate):
+            return next((e for e in events if predicate(e)), None)
+        firmware = lambda e: e['kind'] == 'device.request' and e['details'].get('fw') == 'log1'
+        news = latest(lambda e: e['kind'] == 'briefing.modules')
+        modules = news['details'].get('modules', []) if news else []
+        for item in modules:
+            if not item.get('diagnostics') and item.get('upstream_status'):
+                item['diagnostics'] = http_failure(item['upstream_status'], 'ai' if item.get('error_kind') == 'ai_http' else 'source')
+        return dict(last_firmware_request=latest(firmware),
+                    last_sync_response=latest(lambda e: firmware(e) and e['details'].get('path') == '/device/time'),
+                    last_sync_report=latest(lambda e: e['kind'] == 'device.serial' and e['details'].get('code') in ('sync_ok', 'sync_failed')),
+                    last_clock_state=latest(lambda e: e['kind'] == 'device.serial' and e['details'].get('code') in ('clock_wait', 'clock_status')),
+                    last_serial_failure=latest(lambda e: e['kind'] == 'device.serial' and e['details'].get('ok') is False and e['details'].get('code') != 'sync_failed'),
+                    modules=modules,
+                    modules_at=news['at'] if news else None)
 
 
 def record(kind: str, **details):
@@ -149,7 +206,7 @@ def request_details(request: Request) -> dict:
     token = query.get('id', '')
     if len(token) == 12 and all(c in '0123456789abcdef' for c in token):
         result['id'] = token
-    for key in ('board', 'event', 'hour', 'minute', 'part', 'sent', 'sent_ms', 'wait_ms', 'fetch_ms', 'preload'):
+    for key in ('board', 'event', 'hour', 'minute', 'part', 'sent', 'sent_ms', 'wait_ms', 'fetch_ms', 'preload', 'rate'):
         value = query.get(key, '')
         if value.isascii() and value.isdigit() and len(value) <= 10:
             result[key] = int(value)
@@ -157,10 +214,51 @@ def request_details(request: Request) -> dict:
     return result
 
 
+class SerialEvent(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    at: AwareDatetime
+    session: str = Field(pattern=r'^[0-9a-f]{16}$')
+    seq: int = Field(ge=0, le=4294967295)
+    stage: Literal['uart', 'wifi', 'tcp', 'send', 'http', 'sync', 'clock', 'keys', 'schedule', 'device', 'speech']
+    code: Literal['command', 'timeout', 'esp_error', 'http_ok', 'http_error', 'protocol_error',
+                  'sync_ok', 'sync_failed', 'clock_wait', 'clock_status', 'waiting', 'reset', 'schedule', 'key', 'requested', 'stopped',
+                  'slow_response', 'invalid_plan', 'part_sent', 'voice_rate', 'wait_estimate']
+    ok: bool | None = None
+    command: Literal['AT', 'ATE0', 'CWMODE', 'CIFSR', 'AUTOCONN', 'CWJAP', 'CIPSTART', 'CIPSEND',
+                     'CIPCLOSE', 'CIPMODE', 'CIPMUX', 'CIPDINFO', 'CIPRECVMODE'] | None = None
+    http_status: int | None = Field(default=None, ge=0, le=599)
+    bytes: int | None = Field(default=None, ge=0, le=65535)
+    elapsed_ms: int | None = Field(default=None, ge=0, le=4294967295)
+    hour: int | None = Field(default=None, ge=0, le=23)
+    minute: int | None = Field(default=None, ge=0, le=59)
+    key: int | None = Field(default=None, ge=1, le=8)
+    part: int | None = Field(default=None, ge=0, le=127)
+    fetch_ms: int | None = Field(default=None, ge=0, le=4294967295)
+    frame_interval_ms: int | None = Field(default=None, ge=0, le=4294967295)
+    wait_ms: int | None = Field(default=None, ge=0, le=150000)
+    preload: int | None = Field(default=None, ge=0, le=1)
+    rate: int | None = Field(default=None, ge=300, le=600)
+
+
+class SerialImport(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    events: list[SerialEvent] = Field(min_length=1, max_length=500)
+
+
+@router.post('/api/device-logs/import')
+def import_serial(payload: SerialImport):
+    return require_store().import_serial(payload.events)
+
+
+@router.get('/api/device-logs/status')
+def status():
+    return JSONResponse(require_store().status(), headers={'Cache-Control': 'no-store'})
+
+
 @router.get('/api/device-logs')
 def history(day: date | None = None, before: int | None = Query(default=None, ge=1, le=2**63-1),
-            limit: int = Query(default=100, ge=1, le=200)):
-    return JSONResponse(require_store().history((day or datetime.now(HK).date()).isoformat(), before, limit),
+            limit: int = Query(default=100, ge=1, le=200), category: Literal['all','sync','network','news','serial'] = 'all'):
+    return JSONResponse(require_store().history((day or datetime.now(HK).date()).isoformat(), before, limit, category),
                         headers={'Cache-Control': 'no-store'})
 
 
@@ -187,6 +285,6 @@ def export(day: date | None = None):
 @router.get('/device/event', response_class=PlainTextResponse)
 def device_event(name: str = Query(pattern=r'^finished$'), id: str = Query(pattern=r'^[0-9a-f]{12}$'),
                  sent: int = Query(ge=0, le=127), sent_ms: int = Query(ge=0, le=4294967295),
-                 wait_ms: int = Query(ge=0, le=100000), fetch_ms: int = Query(ge=0, le=4294967295)):
+                 wait_ms: int = Query(ge=0, le=150000), fetch_ms: int = Query(ge=0, le=4294967295)):
     # Self-report means frames were sent and the estimated wait ended, not audible success.
     return PlainTextResponse('ok\n', headers={'Cache-Control': 'no-store'})

@@ -5,22 +5,24 @@ from pathlib import Path
 import asyncio
 import time
 import logging
+import secrets
 from contextlib import asynccontextmanager
 
 import httpx
 from openai import APIStatusError
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.defaults import MODULE_CATALOG
 from backend import device_briefing, device_log
 from backend.device_time import router as device_time_router
 from backend.executor import BriefingExecutor, format_error
+from backend.diagnostics import failure_details
 from backend.models import BlockTestRequest, BlockTestResult, BriefingConfig, BriefingResult, HealthResponse
 from backend.repository import ConfigRepository
-from backend.settings import Settings, get_settings
+from backend.settings import Settings, ai_configuration, get_settings
 
 
 @asynccontextmanager
@@ -68,20 +70,26 @@ async def device_request_history(request: Request, call_next):
     if not request.url.path.startswith('/device/'):
         return await call_next(request)
     started = time.perf_counter()
+    request_id = secrets.token_hex(6)
     path = request.url.path if request.url.path in ('/device/time', '/device/time-speech',
         '/device/briefing', '/device/briefing-part', '/device/event') else '/device/(unknown)'
+    await asyncio.to_thread(device_log.record, 'device.request.started',
+                            **device_log.request_details(request), path=path, request_id=request_id)
     try:
         response = await call_next(request)
     except Exception as exc:
         device_log.record('device.request', path=path, status=500,
+                          request_id=request_id,
                           duration_ms=round((time.perf_counter() - started) * 1000),
                           error_type=type(exc).__name__)
         raise
     details = device_log.request_details(request)
     details.update(path=path, status=response.status_code,
+                   request_id=request_id,
                    duration_ms=round((time.perf_counter() - started) * 1000),
                    bytes=int(response.headers.get('content-length', 0)))
     await asyncio.to_thread(device_log.record, 'device.request', **details)
+    response.headers['X-Vox-Request-ID'] = request_id
     return response
 
 
@@ -133,12 +141,42 @@ async def test_block(
     try:
         return await executor.test_block(request.block, request.with_ai)
     except Exception as exc:
+        device_log.record('module.test', module_id=request.block.id, type=request.block.type, status='error',
+                          diagnostics=failure_details(exc))
         status_code = 400
         if isinstance(exc, APIStatusError):
             status_code = exc.status_code
         elif isinstance(exc, httpx.HTTPStatusError):
             status_code = exc.response.status_code
         raise HTTPException(status_code=status_code, detail=format_error(exc)) from exc
+
+
+@app.get('/api/ai/status')
+async def ai_status(settings: Settings = Depends(get_settings)):
+    return JSONResponse(ai_configuration(settings), headers={'Cache-Control': 'no-store'})
+
+
+@app.post('/api/device-logs/check-ai')
+async def check_ai(executor: BriefingExecutor = Depends(get_executor)):
+    started = time.perf_counter()
+    device_log.record('diagnostic.ai', status='started')
+    try:
+        configuration = ai_configuration(executor.settings)
+        if not configuration['configured']:
+            result = dict(status='error', diagnostics=dict(stage='ai', code='configuration',
+                          summary='AI配置缺失或接口地址格式无效', next_step='在服务器检查.env中的密钥、模型和接口地址，然后重新创建容器；网页不接收配置值。'))
+        else:
+            await asyncio.wait_for(executor._polish_with_ai(
+                [{'role': 'user', 'content': '请只回复：测试通过。'}], max_tokens=24), timeout=30)
+            result = dict(status='success')
+    except asyncio.TimeoutError:
+        result = dict(status='error', diagnostics=dict(stage='ai', code='timeout',
+                      summary='AI测速超过30秒，已停止等待', next_step='检查供应商状态与服务器到上游的连接；稍后重试。'))
+    except Exception as exc:
+        result = dict(status='error', diagnostics=failure_details(exc, 'ai'))
+    result['duration_ms'] = round((time.perf_counter() - started) * 1000)
+    device_log.record('diagnostic.ai', **result)
+    return result
 
 
 @app.get("/briefing", response_model=BriefingResult)

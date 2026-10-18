@@ -3,6 +3,7 @@ import asyncio
 import html
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
@@ -10,6 +11,8 @@ from xml.etree import ElementTree as ET
 import httpx
 
 from backend.models import NewsConfig
+from backend import device_log
+from backend.diagnostics import failure_details
 from backend.speech import DEFAULT_ALIASES, SPEECH_RULES, speech_text
 from backend.template import HONG_KONG_TIMEZONE
 
@@ -31,6 +34,8 @@ FEEDS = {
         ("CNBC全球", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362"),
         ("CNBC财经", "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664"),
         ("BBC商业", "https://feeds.bbci.co.uk/news/business/rss.xml"),
+        ("香港电台财经", "https://rthk.hk/rthk/news/rss/c_expressnews_cfinance.xml"),
+        ("香港电台国际", "https://rthk.hk/rthk/news/rss/c_expressnews_cinternational.xml"),
     ],
     "hong_kong": [("香港电台财经", "https://rthk.hk/rthk/news/rss/c_expressnews_cfinance.xml")],
     "actuarial": [
@@ -38,6 +43,7 @@ FEEDS = {
         ("Insurance Journal", "https://www.insurancejournal.com/rss/news/"),
         ("SOA精算杂志", "https://www.theactuarymagazine.org/feed/"),
         ("Reinsurance News", "https://www.reinsurancene.ws/feed/"),
+        ("香港保监局", "https://www.ia.org.hk/tc/rss/rss_news_tc.xml"),
     ],
 }
 
@@ -51,7 +57,10 @@ def parse_feed(body: bytes, source: str) -> list[dict]:
     items = []
     for item in root.findall(".//item")[:100]:
         try:
-            published = parsedate_to_datetime(item.findtext("pubDate", ""))
+            date = item.findtext("pubDate", "")
+            date_only = source == '香港保监局' and re.fullmatch(r'\d{4}-\d{2}-\d{2}', date)
+            # This Hong Kong regulator publishes local dates, not RFC822 timestamps.
+            published = datetime.fromisoformat(date).replace(tzinfo=HONG_KONG_TIMEZONE) if date_only else parsedate_to_datetime(date)
             if published.tzinfo is None:
                 continue  # Do not guess the publisher's timezone.
             title, url = plain(item.findtext("title", "")), item.findtext("link", "").strip()
@@ -59,7 +68,8 @@ def parse_feed(body: bytes, source: str) -> list[dict]:
                 continue
             items.append({"title": title, "url": url, "source": source,
                           "published_at": published.astimezone(HONG_KONG_TIMEZONE).isoformat(),
-                          "summary": plain(item.findtext("description", ""))[:500]})
+                          "summary": plain(item.findtext("description", ""))[:500],
+                          **({'date_only': True} if date_only else {})})
         except (ValueError, TypeError, OverflowError):
             continue
     return items
@@ -74,6 +84,8 @@ async def collect_news(kind: str, config: NewsConfig, now: datetime | None = Non
     sources = FEEDS["actuarial" if kind == "actuarial" else config.scope]
 
     async def fetch(c: httpx.AsyncClient, source: str, url: str, hkma: bool = False):
+        started = time.perf_counter()
+        device_log.record('source.request', source=source, type=kind, scope=config.scope, status='started')
         try:
             response = await c.get(url, timeout=12)
             response.raise_for_status()
@@ -90,8 +102,14 @@ async def collect_news(kind: str, config: NewsConfig, now: datetime | None = Non
                 articles = parse_feed(response.content, source)
             if not articles:
                 raise ValueError("没有可解析的带日期新闻")
+            device_log.record('source.request', source=source, type=kind, scope=config.scope, status='success',
+                              http_status=response.status_code, bytes=len(response.content), articles=len(articles),
+                              duration_ms=round((time.perf_counter() - started) * 1000))
             return articles, None
         except Exception as exc:
+            device_log.record('source.request', source=source, type=kind, scope=config.scope, status='error',
+                              duration_ms=round((time.perf_counter() - started) * 1000),
+                              diagnostics=failure_details(exc, 'source'))
             return [], f"{source}：{type(exc).__name__}，本次未能取得新闻"
 
     async def gather(c: httpx.AsyncClient):
@@ -129,6 +147,38 @@ async def collect_news(kind: str, config: NewsConfig, now: datetime | None = Non
             "scope": "精算与保险" if kind == "actuarial" else "香港金融" if config.scope == "hong_kong" else "全球金融",
             "articles": selected, "source_errors": errors,
             "coverage": "仅包含当前订阅源仍保留的带日期条目，不保证覆盖前一天所有重大新闻"}
+
+
+def headline_fallback(kind: str, config: NewsConfig, raw: dict) -> tuple[str, list[dict]] | None:
+    """Bounded publisher headlines when AI is unavailable, never invented summaries."""
+    selected, seen, spoken = [], set(), []
+    for row in raw['articles']:
+        title = speech_text(row['title'], config.aliases or DEFAULT_ALIASES)
+        if row['source'] not in ('香港电台财经', '香港电台国际', '香港保监局', '香港金管局'):
+            continue
+        if len(title) > 140 or not re.search(r'[\u4e00-\u9fff]', title) or re.search(r'https?://|[A-Z][a-z]+|[a-z]{2,}|[`#*]', title):
+            continue
+        if re.search(r'招聘|研討|研讨|論壇|论坛|講座|讲座|虛假|虚假|騙|骗|任命', title):
+            continue
+        if kind == 'actuarial':
+            if not re.search(r'保險|保险|再保|資本|资本|償付|偿付|準備金|准备金|定價|定价|年金|IFRS|RBC', title):
+                continue
+        else:
+            if not re.search(r'利率|央行|通脹|通胀|金融|銀行|银行|債|债|匯|汇|股|關稅|关税|油價|油价|經濟|经济', title):
+                continue
+            scope = r'香港|港元|港股|金管局|本港|港交所' if config.scope == 'hong_kong' else r'美國|美国|聯儲|联储|歐|欧|日本|英國|英国|全球|國際|国际|美元|央行|美股|關稅|关税'
+            if not re.search(scope, title):
+                continue
+        if title in seen:
+            continue
+        published = datetime.fromisoformat(row['published_at'])
+        spoken.append(f"{published.month}月{published.day}日，{row['source']}：{title.rstrip('。')}。")
+        selected.append(row); seen.add(title)
+        if len(selected) >= config.count:
+            break
+    if not selected:
+        return None
+    return raw['scope'] + '。新闻整理服务暂不可用，以下是来源标题。' + ''.join(spoken), selected
 
 
 def news_messages(kind: str, config: NewsConfig, raw: dict) -> list[dict[str, str]]:

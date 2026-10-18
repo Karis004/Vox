@@ -9,10 +9,13 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from openai import APIStatusError, AsyncOpenAI
+from openai import APIStatusError, APIConnectionError, AsyncOpenAI
+
+from backend import device_log
+from backend.diagnostics import failure_details
 
 from backend.models import BlockResult, BlockTestResult, BriefingBlock, BriefingConfig, BriefingResult, NewsConfig
-from backend.news import collect_news, news_messages, read_news_output
+from backend.news import collect_news, headline_fallback, news_messages, read_news_output
 from backend.speech import SPEECH_RULES, speech_text
 from backend.settings import Settings
 from backend.template import HONG_KONG_TIMEZONE, available_variables, date_context, extract_path, render_template
@@ -52,6 +55,7 @@ class SourceData:
     raw: Any = None
     messages: list[dict[str, str]] | None = None
     warning: str | None = None
+    diagnostics: dict | None = None
 
 
 def format_error(exc: Exception) -> str:
@@ -89,7 +93,7 @@ class BriefingExecutor:
     async def _execute_block(self, block: BriefingBlock) -> BlockResult:
         started = time.perf_counter()
         try:
-            source = await self._source(block)
+            source = await self._source(block, allow_fallback=True)
             text = source.text
 
             status = "warning" if source.warning else "success"
@@ -109,6 +113,7 @@ class BriefingExecutor:
                 status=status,
                 text=text,
                 message=message,
+                diagnostics=source.diagnostics,
                 duration_ms=round((time.perf_counter() - started) * 1000),
             )
         except Exception as exc:  # A failed source must not stop the full briefing.
@@ -121,6 +126,7 @@ class BriefingExecutor:
                 status="error",
                 text=f"{block.name}暂时无法获取。",
                 message=message,
+                diagnostics=failure_details(exc, 'news_validation' if block.type in ('news', 'actuarial') else 'module'),
                 duration_ms=round((time.perf_counter() - started) * 1000),
             )
 
@@ -141,10 +147,21 @@ class BriefingExecutor:
             result.ai_text = await self._polish_with_ai(result.ai_messages)
         return result
 
-    async def _source(self, block: BriefingBlock) -> SourceData:
+    async def _source(self, block: BriefingBlock, allow_fallback: bool = False) -> SourceData:
         if block.type in ("news", "actuarial"):
             config = NewsConfig.model_validate(block.config)
-            raw = await collect_news(block.type, config, client=self.client)
+            started = time.perf_counter()
+            device_log.record('module.source', module_id=block.id, type=block.type, status='started')
+            try:
+                raw = await collect_news(block.type, config, client=self.client)
+            except Exception as exc:
+                device_log.record('module.source', module_id=block.id, type=block.type, status='error',
+                                  diagnostics=failure_details(exc, 'source'))
+                raise
+            device_log.record('module.source', module_id=block.id, type=block.type,
+                              status='warning' if raw['source_errors'] else 'success',
+                              articles=len(raw['articles']), source_errors=len(raw['source_errors']),
+                              duration_ms=round((time.perf_counter() - started) * 1000))
             context = date_context()
             if not raw["articles"]:
                 return SourceData(raw["scope"] + "。本次订阅来源中没有前一天或近期的可用更新。", context, raw,
@@ -153,16 +170,29 @@ class BriefingExecutor:
                 raise ValueError("新闻筛选与中文口播需要服务端已有的 OPENAI_API_KEY")
             config.prompt = render_template(config.prompt, context)
             messages = news_messages(block.type, config, raw)
-            output = await self._polish_with_ai(messages, max_tokens=1000)
             try:
-                text, selected = read_news_output(output, raw, config)
-            except (ValueError, TypeError, AttributeError) as exc:
-                messages.extend([
-                    {"role": "assistant", "content": output},
-                    {"role": "user", "content": f"请修正输出：{exc}。继续只返回指定JSON，不增加事实。英文公司采用名称表、常见简称或中文名，专业缩写用大写字母。"},
-                ])
-                output = await self._polish_with_ai(messages, max_tokens=1000)
-                text, selected = read_news_output(output, raw, config)
+                output = await self._news_ai(block, messages, 1)
+                try:
+                    text, selected = read_news_output(output, raw, config)
+                except (ValueError, TypeError, AttributeError) as exc:
+                    messages.extend([
+                        {"role": "assistant", "content": output},
+                        {"role": "user", "content": f"请修正输出：{exc}。继续只返回指定JSON，不增加事实。英文公司采用名称表、常见简称或中文名，专业缩写用大写字母。"},
+                    ])
+                    output = await self._news_ai(block, messages, 2)
+                    text, selected = read_news_output(output, raw, config)
+            except (APIStatusError, APIConnectionError) as exc:
+                fallback = headline_fallback(block.type, config, raw) if allow_fallback else None
+                if fallback is None:
+                    raise
+                text, selected = fallback
+                raw['selected_sources'] = selected
+                details = failure_details(exc, 'ai')
+                details.update(code='headline_fallback', summary='AI整理失败，已改读中文来源标题',
+                               next_step='标题不等于AI摘要；上游恢复后会重新尝试。')
+                device_log.record('module.fallback', module_id=block.id, type=block.type,
+                                  status='warning', articles=len(selected), diagnostics=details)
+                return SourceData(text, context, raw, warning='AI整理失败；已使用带来源和日期的中文标题。', diagnostics=details)
             raw["selected_sources"] = selected
             warning = "；".join(raw["source_errors"]) or None
             return SourceData(text, context, raw, messages, warning)
@@ -309,6 +339,20 @@ class BriefingExecutor:
                 "content": f"要求：{prompt or '保持事实准确，语言简洁自然。'}\n\n原始内容：\n{text}",
             },
         ]
+
+    async def _news_ai(self, block: BriefingBlock, messages: list[dict[str, str]], attempt: int) -> str:
+        started = time.perf_counter()
+        device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='started')
+        try:
+            output = await self._polish_with_ai(messages, max_tokens=1000)
+        except Exception as exc:
+            device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='error',
+                              duration_ms=round((time.perf_counter() - started) * 1000),
+                              diagnostics=failure_details(exc, 'ai'))
+            raise
+        device_log.record('module.ai', module_id=block.id, type=block.type, attempt=attempt, status='success',
+                          duration_ms=round((time.perf_counter() - started) * 1000))
+        return output
 
     async def _polish_with_ai(self, messages: list[dict[str, str]], max_tokens: int = 300) -> str:
         client_kwargs: dict[str, str] = {"api_key": self.settings.openai_api_key}

@@ -70,3 +70,22 @@ export interface DeviceScript {
   text: string
   parts: Array<{ part: number; bytes: number; characters: number; estimated_wait_ms: number; text: string }>
 }
+
+export interface DeviceStatus {
+  last_firmware_request: DeviceLogEvent | null
+  last_sync_response: DeviceLogEvent | null
+  last_sync_report: DeviceLogEvent | null
+  last_clock_state: DeviceLogEvent | null
+  last_serial_failure: DeviceLogEvent | null
+  modules: Array<{ type: string; status: string; diagnostics?: FailureInfo }>
+  modules_at: string | null
+}
+export interface FailureInfo { stage?: string; summary?: string; next_step?: string; upstream_status?: number }
+export interface AiCheck { status: 'success' | 'error'; duration_ms: number; diagnostics?: FailureInfo }
+export interface AiConfiguration {
+  configured: boolean
+  key_present: boolean
+  model_present: boolean
+  endpoint_valid: boolean
+  endpoint_mode: 'custom' | 'default'
+}

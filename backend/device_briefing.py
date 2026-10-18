@@ -50,6 +50,7 @@ class Snapshot:
     key: str
     created: datetime
     parts: list[str]
+    retry_at: datetime | None = None
 
 
 class MorningBriefing:
@@ -77,7 +78,8 @@ class MorningBriefing:
         key = self.key(config, current)
         self.snapshots = {token: snapshot for token, snapshot in self.snapshots.items()
                           if current - snapshot.created < timedelta(hours=3)}
-        cached = next((snapshot for snapshot in self.snapshots.values() if snapshot.key == key), None)
+        cached = next((snapshot for snapshot in reversed(list(self.snapshots.values()))
+                       if snapshot.key == key and (snapshot.retry_at is None or current < snapshot.retry_at)), None)
         if cached:
             return cached
         if self.task is None or self.task.done():
@@ -97,9 +99,15 @@ class MorningBriefing:
             parts = split_text(result.text)
             token = secrets.token_hex(6)
             self.snapshots[token] = Snapshot(token, key, datetime.now(HONG_KONG_TIMEZONE), parts)
+            if any(block.status == 'error' or (block.diagnostics or {}).get('code') == 'headline_fallback' for block in result.blocks):
+                # Keep this immutable snapshot for in-flight devices, but try a fresh
+                # generation after five minutes instead of reusing failures for 3h.
+                self.snapshots[token].retry_at = self.snapshots[token].created + timedelta(minutes=5)
             device_log.archive(self.snapshots[token], result)
             device_log.record('briefing.ready', id=token, parts=len(parts), bytes=len(''.join(parts).encode()),
                               duration_ms=result.duration_ms,
+                              partial_failure=self.snapshots[token].retry_at is not None,
+                              retry_after_s=300 if self.snapshots[token].retry_at else None,
                               modules=device_log.module_outcomes(result))
             # Retain a few in-flight scripts after config changes, without unlimited memory.
             while len(self.snapshots) > 8:

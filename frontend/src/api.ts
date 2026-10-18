@@ -1,4 +1,4 @@
-import type { BlockTestResult, BriefingBlock, BriefingConfig, BriefingResult, CatalogItem, DeviceHistory, DeviceScript } from './types'
+import type { AiCheck, AiConfiguration, BlockTestResult, BriefingBlock, BriefingConfig, BriefingResult, CatalogItem, DeviceHistory, DeviceScript, DeviceStatus } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -17,8 +17,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  deviceHistory: (day: string, before?: number | null) => request<DeviceHistory>(`/api/device-logs?day=${encodeURIComponent(day)}${before ? `&before=${before}` : ''}`),
+  deviceHistory: (day: string, before?: number | null, category = 'all') => request<DeviceHistory>(`/api/device-logs?day=${encodeURIComponent(day)}&category=${encodeURIComponent(category)}${before ? `&before=${before}` : ''}`),
   deviceScript: (id: string) => request<DeviceScript>(`/api/device-logs/briefings/${encodeURIComponent(id)}`),
+  deviceStatus: () => request<DeviceStatus>('/api/device-logs/status'),
+  checkAi: () => request<AiCheck>('/api/device-logs/check-ai', { method: 'POST' }),
+  aiConfiguration: () => request<AiConfiguration>('/api/ai/status', { cache: 'no-store' }),
+  importDeviceLogs: (events: unknown[]) => request<{ imported: number; duplicates: number }>('/api/device-logs/import', { method: 'POST', body: JSON.stringify({ events }) }),
   getConfig: () => request<BriefingConfig>('/api/config'),
   getCatalog: () => request<CatalogItem[]>('/api/modules/catalog'),
   saveConfig: (config: BriefingConfig) =>

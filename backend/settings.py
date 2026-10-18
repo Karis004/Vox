@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,4 +23,23 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def ai_configuration(settings: Settings) -> dict:
+    """Report the running process configuration without disclosing any values."""
+    endpoint = settings.openai_base_url.strip()
+    try:
+        parsed = urlsplit(endpoint)
+        endpoint_valid = not endpoint or bool(
+            parsed.scheme in ('http', 'https') and parsed.hostname and
+            not parsed.username and not parsed.password and not parsed.query and not parsed.fragment)
+        if endpoint:
+            parsed.port  # Validate malformed ports without echoing the input.
+    except ValueError:
+        endpoint_valid = False
+    key_present = bool(settings.openai_api_key.strip())
+    model_present = bool(settings.openai_model.strip())
+    return dict(configured=key_present and model_present and endpoint_valid,
+                key_present=key_present, model_present=model_present,
+                endpoint_valid=endpoint_valid, endpoint_mode='custom' if endpoint else 'default')
 

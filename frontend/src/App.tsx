@@ -158,7 +158,7 @@ export default function App() {
           />
         </div>
         <div className="header-actions">
-          <button className="icon-button" aria-label="设备日志" title="设备日志" onClick={() => setLogsOpen(true)}><History size={17} /></button>
+          <button className="run-button" aria-label="AI状态与设备日志" title="AI配置状态、测速与设备日志" onClick={() => setLogsOpen(true)}><History size={17} /><span className="desktop-only">AI状态 / 日志</span><span className="mobile-ai-label">AI</span></button>
           {dirty && (
             <button
               className="icon-button desktop-only"
