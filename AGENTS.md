@@ -207,7 +207,7 @@ arduino-cli compile --fqbn arduino:avr:leonardo --build-path "$env:TEMP/vox-leon
 - restart unless-stopped、health检查、卷vox-data:/app/data。正常重建保留数据，**不能down -v或删／替换已有卷**。
 - AI变量OPENAI_API_KEY／OPENAI_MODEL／OPENAI_BASE_URL；本地另支持VOX_HOST／VOX_PORT／VOX_DATABASE_PATH。参考.env.example名称，不能用真实值写文档。
 - Docker构建前端到Python镜像，真实.env／数据库／硬件／release排除。Rollup Linux musl安装步骤解决Windows锁文件兼容，未经Linux构建核对不要删。
-- 既有服务器.env已配置，普通更新不用重填密钥；改变量需重建容器生效。不要输出可能含密钥的compose config、容器完整环境、真实配置正文。
+- 既有服务器.env已配置，普通更新不用重填密钥；改变量需重新创建容器生效（compose up -d --force-recreate），单独restart不会加载新值。不要输出可能含密钥的compose config、容器完整环境、真实配置正文。
 
 获本批授权、完成检查后普通推送，再快进更新服务器：
 
@@ -252,3 +252,5 @@ docker compose ps
 结束任务更新受影响文档；旧描述与代码冲突则修正并保留有用日期，避免过时“待发布”或旧包名误导。最终说明完成内容、实际验证、待用户硬件操作和可点击文件；本批未授权发布则留在本地。
 
 2026-10-19本批授权：用户已在服务器更换AI的.env配置，要求发布网页配置状态／测速并更新GitHub和服务器。入口为右上角“AI状态 / 日志”；GET /api/ai/status只回布尔状态／接口模式，不回私密值、不写.env，显式POST测速才发少量AI调用，最多30秒，显示耗时和安全诊断。一起发布之前后端／网页日志与新闻降级增强；hardware/daily_briefing的recovery源码及包继续本地保留，不上传主板。实际部署／新供应商复核以handoff第16节为准，上文10月18日未发布状态保留为历史记录。
+
+2026-10-19发布结果：f5e9ea2已推送／部署，ARM64容器健康，原保存编排hash不变；配置状态／测速在真实网页通过。用户新.env原地址缺/v1，已仅补路径、保留密钥模型并force-recreate；模型列表200且含当前模型，实际生成测速仍503／1120ms。不要称为AI恢复或把503断言成余额不足；最新记录见handoff第16节。Git工作区剩余三个硬件文件是尚未提交的recovery候选，不要覆盖、顺手提交或上传；服务端／网页累计增强不再待发布。
